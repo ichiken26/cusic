@@ -41,6 +41,7 @@ type xmlTrack struct{
  ID string `xml:"id,attr"`
  Name string `xml:"name,attr"`
  Channel channel `xml:"Channel"`
+ Children []xmlTrack `xml:"Track"`
 }
 type channel struct{
  AudioChannels int `xml:"audioChannels,attr"`
@@ -68,6 +69,9 @@ type lanes struct{
  Track string `xml:"track,attr,omitempty"`
  Lanes []lanes `xml:"Lanes"`
  Clips *clips `xml:"Clips,omitempty"`
+ Notes *noteList `xml:"Notes,omitempty"`
+ Audio *audio `xml:"Audio,omitempty"`
+ Warps *warps `xml:"Warps,omitempty"`
 }
 type clips struct{ID string `xml:"id,attr"`;Items []clip `xml:"Clip"`}
 type clip struct{
@@ -79,6 +83,7 @@ type clip struct{
  Warps *warps `xml:"Warps,omitempty"`
  Audio *audio `xml:"Audio,omitempty"`
  Clips *clips `xml:"Clips,omitempty"`
+ Lanes *lanes `xml:"Lanes,omitempty"`
 }
 type noteList struct{ID string `xml:"id,attr"`;Notes []xmlNote `xml:"Note"`}
 type xmlNote struct{
@@ -188,42 +193,80 @@ func ReadFile(file string)(Imported,error){
  bpm:=int(math.Round(project.Transport.Tempo.Value))
  if bpm<20||bpm>400||project.Transport.Signature.Num<1||project.Transport.Signature.Den<1{return result,errors.New("invalid DAWproject tempo/meter")}
  result.Song.Tempo=bpm;result.Song.MeterNum=project.Transport.Signature.Num;result.Song.MeterDen=project.Transport.Signature.Den
- byID:=map[string]xmlTrack{};for _,t:=range project.Structure.Tracks{byID[t.ID]=t}
- for _,lane:=range project.Arrangement.Lanes.Lanes{
-  tr,ok:=byID[lane.Track];if !ok||tr.Channel.Role=="master"{continue}
-  parsed:=store.ImportedTrack{Name:tr.Name,Kind:"instrument",Notes:[]store.InputNote{}}
-  if strings.Contains(tr.ContentType,"notes") {
-   if lane.Clips!=nil{for _,clip:=range lane.Clips.Items{if err:=gatherNotes(clip,clip.Time,&parsed.Notes);err!=nil{return result,err}}}
-   result.Song.Tracks=append(result.Song.Tracks,parsed)
-  }
-  if strings.Contains(tr.ContentType,"audio")&&lane.Clips!=nil{
-   for _,clip:=range lane.Clips.Items{
-    audioPath:=clipAudioPath(clip)
-    if audioPath!=""{if strings.HasPrefix(audioPath,"/")||strings.Contains(audioPath,".."){return result,errors.New("unsafe DAWproject audio path")};result.Audio=append(result.Audio,ImportedAudio{Name:tr.Name,ArchivePath:audioPath})}
+ byID:=map[string]xmlTrack{}
+ var indexTracks func([]xmlTrack)
+ indexTracks=func(ts []xmlTrack){for _,t:=range ts{byID[t.ID]=t;indexTracks(t.Children)}}
+ indexTracks(project.Structure.Tracks)
+ var walk func(lanes,string,int)error
+ notesByTrack:=map[string]*store.ImportedTrack{}
+ order:=[]string{}
+ seenAudio:=map[string]bool{}
+ walk=func(l lanes,inheritedTrack string,depth int)error{
+  if depth>64{return errors.New("DAWproject lane nesting exceeds 64")}
+  trackID:=inheritedTrack
+  if l.Track!=""{trackID=l.Track}
+  tr,exists:=byID[trackID]
+  if exists&&tr.Channel.Role!="master" {
+   if strings.Contains(tr.ContentType,"notes") {
+    if l.TimeUnit=="seconds"{return fmt.Errorf("note lane %q uses seconds, not beats",tr.Name)}
+    part,ok:=notesByTrack[tr.ID]
+    if !ok{part=&store.ImportedTrack{Name:tr.Name,Kind:"instrument",Notes:[]store.InputNote{}};notesByTrack[tr.ID]=part;order=append(order,tr.ID)}
+    if l.Notes!=nil{if err:=gatherList(l.Notes,0,&part.Notes);err!=nil{return err}}
+    if l.Clips!=nil{for _,c:=range l.Clips.Items{if err:=gatherNotes(c,c.Time,&part.Notes);err!=nil{return err}}}
+   }
+   if strings.Contains(tr.ContentType,"audio"){
+    if l.Audio!=nil&&l.Audio.File.Path!=""{if err:=addArchiveAudio(tr.Name,l.Audio.File.Path,&result.Audio,seenAudio);err!=nil{return err}}
+    if l.Warps!=nil&&l.Warps.Audio.File.Path!=""{if err:=addArchiveAudio(tr.Name,l.Warps.Audio.File.Path,&result.Audio,seenAudio);err!=nil{return err}}
+    if l.Clips!=nil{for _,c:=range l.Clips.Items{for _,audioPath:=range clipAudioPaths(c){if err:=addArchiveAudio(tr.Name,audioPath,&result.Audio,seenAudio);err!=nil{return err}}}}
    }
   }
+  for _,child:=range l.Lanes{if err:=walk(child,trackID,depth+1);err!=nil{return err}}
+  return nil
  }
+ if err:=walk(project.Arrangement.Lanes,"",0);err!=nil{return result,err}
+ for _,id:=range order{result.Song.Tracks=append(result.Song.Tracks,*notesByTrack[id])}
  return result,nil
 }
-func gatherNotes(c clip,clipStart float64,dest *[]store.InputNote)error{
- if c.Notes!=nil{
-  for _,n:=range c.Notes.Notes{
-   tick:=int64(math.Round((clipStart+n.Time)*float64(store.PPQ)))
-   duration:=int64(math.Round(n.Duration*float64(store.PPQ)))
-   velocity:=int(math.Round(n.Vel*127));if velocity==0{velocity=100}
-   item:=store.InputNote{Tick:tick,Duration:duration,Pitch:n.Key,Velocity:velocity}
-   if err:=store.Validate(item);err!=nil{return fmt.Errorf("invalid DAWproject note at %.3f beats: %w",n.Time,err)}
-   *dest=append(*dest,item)
-  }
- }
- if c.Clips!=nil{for _,child:=range c.Clips.Items{if err:=gatherNotes(child,clipStart+child.Time,dest);err!=nil{return err}}}
+func addArchiveAudio(name,audioPath string,result *[]ImportedAudio,seen map[string]bool)error{
+ if path.IsAbs(audioPath)||strings.Contains(audioPath,"..")||!strings.HasSuffix(strings.ToLower(audioPath),".wav"){return fmt.Errorf("unsafe or unsupported DAWproject audio path %q",audioPath)}
+ key:=name+"\x00"+audioPath
+ if !seen[key]{*result=append(*result,ImportedAudio{Name:name,ArchivePath:audioPath});seen[key]=true}
  return nil
 }
-func clipAudioPath(c clip)string{
- if c.Audio!=nil{return c.Audio.File.Path}
- if c.Warps!=nil{return c.Warps.Audio.File.Path}
- if c.Clips!=nil{for _,child:=range c.Clips.Items{if p:=clipAudioPath(child);p!=""{return p}}}
- return ""
+func gatherList(list *noteList,offset float64,dest *[]store.InputNote)error{
+ for _,n:=range list.Notes{
+  if math.IsNaN(n.Time)||math.IsNaN(n.Duration)||math.IsNaN(n.Vel)||math.IsInf(n.Time,0)||math.IsInf(n.Duration,0)||math.IsInf(n.Vel,0){return errors.New("non-finite DAWproject note data")}
+  tick:=int64(math.Round((offset+n.Time)*float64(store.PPQ)))
+  duration:=int64(math.Round(n.Duration*float64(store.PPQ)))
+  velocity:=int(math.Round(n.Vel*127))
+  if velocity==0{velocity=100}
+  item:=store.InputNote{Tick:tick,Duration:duration,Pitch:n.Key,Velocity:velocity}
+  if err:=store.Validate(item);err!=nil{return fmt.Errorf("invalid DAWproject note at %.3f beats: %w",n.Time,err)}
+  *dest=append(*dest,item)
+ }
+ return nil
+}
+func gatherNotes(c clip,clipStart float64,dest *[]store.InputNote)error{
+ if c.PlayStart!=0{return errors.New("DAWproject note clip has nonzero playStart; flatten clips in Cubase before sync")}
+ if c.Notes!=nil{if err:=gatherList(c.Notes,clipStart,dest);err!=nil{return err}}
+ if c.Clips!=nil{for _,child:=range c.Clips.Items{if err:=gatherNotes(child,clipStart+child.Time,dest);err!=nil{return err}}}
+ if c.Lanes!=nil{
+  if c.Lanes.Notes!=nil{if err:=gatherList(c.Lanes.Notes,clipStart,dest);err!=nil{return err}}
+  if c.Lanes.Clips!=nil{for _,child:=range c.Lanes.Clips.Items{if err:=gatherNotes(child,clipStart+child.Time,dest);err!=nil{return err}}}
+ }
+ return nil
+}
+func clipAudioPaths(c clip)[]string{
+ out:=[]string{}
+ if c.Audio!=nil&&c.Audio.File.Path!=""{out=append(out,c.Audio.File.Path)}
+ if c.Warps!=nil&&c.Warps.Audio.File.Path!=""{out=append(out,c.Warps.Audio.File.Path)}
+ if c.Clips!=nil{for _,child:=range c.Clips.Items{out=append(out,clipAudioPaths(child)...)}}
+ if c.Lanes!=nil{
+  if c.Lanes.Audio!=nil&&c.Lanes.Audio.File.Path!=""{out=append(out,c.Lanes.Audio.File.Path)}
+  if c.Lanes.Warps!=nil&&c.Lanes.Warps.Audio.File.Path!=""{out=append(out,c.Lanes.Warps.Audio.File.Path)}
+  if c.Lanes.Clips!=nil{for _,child:=range c.Lanes.Clips.Items{out=append(out,clipAudioPaths(child)...)}}
+ }
+ return out
 }
 // ExtractAudio extracts only a named embedded WAV into a NEW caller-provided path.
 // No traversal and no overwrite. Imported media is never executed.
