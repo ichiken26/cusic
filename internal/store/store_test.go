@@ -28,5 +28,5 @@ func TestRefuseCrossBoundaryAndInvalidNote(t *testing.T){
  track,head,err:=s.AddTrack("Teto","vocal","teto_sv2");if err!=nil{t.Fatal(err)}
  _,head,err=s.AddNote(track.ID,InputNote{Tick:1800,Duration:300,Pitch:60,Velocity:100,Lyric:"あ"});if err!=nil{t.Fatal(err)}
  if _,err=s.ApplyPatch(Patch{BaseRevision:head,Track:track.ID,FromBar:2,ToBar:2,Notes:[]InputNote{}});err==nil{t.Fatal("boundary-crossing note was erased")}
- if _,err=s.AddNote(track.ID,InputNote{Tick:0,Duration:-1,Pitch:60,Velocity:100});err==nil{t.Fatal("accepted negative duration")}
+ if _,_,err=s.AddNote(track.ID,InputNote{Tick:0,Duration:-1,Pitch:60,Velocity:100});err==nil{t.Fatal("accepted negative duration")}
 }

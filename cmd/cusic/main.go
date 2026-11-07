@@ -47,8 +47,7 @@ func run(args []string)error{
   f:=flag.NewFlagSet("log",flag.ContinueOnError);limit:=f.Int("n",20,"limit")
   if err:=f.Parse(args[1:]);err!=nil{return err}
   rs,err:=s.Revisions(*limit);if err!=nil{return err}
-  for _,r:=range rs{fmt.Printf("%d  %s  %s (%s)
-",r.ID,r.At,r.Message,r.Operation)}
+  for _,r:=range rs{fmt.Printf("%d  %s  %s (%s)\n",r.ID,r.At,r.Message,r.Operation)}
   return nil
  case "diff":
   if len(args)<2{return errors.New("usage: cusic diff <revision>")}
@@ -58,8 +57,7 @@ func run(args []string)error{
   if len(args)<2{return errors.New("usage: cusic revert <revision> (HEAD only)")}
   id,err:=strconv.ParseInt(args[1],10,64);if err!=nil{return err}
   rev,err:=s.Revert(id);if err!=nil{return err}
-  fmt.Printf("Reverted revision %d (new HEAD %d)
-",id,rev);return nil
+  fmt.Printf("Reverted revision %d (new HEAD %d)\n",id,rev);return nil
  case "import":return importMIDI(s,args[1:])
  case "export":return export(s,args[1:])
  case "validate":
@@ -75,33 +73,15 @@ func run(args []string)error{
  }
 }
 func help()error{
- fmt.Print("cusic — local-first music agent CLI
-
-")
- fmt.Print("  cusic init --name Demo --tempo 168 [DIR]
-")
- fmt.Print("  cusic status
-  cusic track add --name Bass [--kind instrument|drums|vocal] [--singer teto_sv2]
-")
- fmt.Print("  cusic track list
-  cusic note add --track Bass --tick 0 --duration 480 --pitch 40 --velocity 100
-")
- fmt.Print("  cusic inspect --track Bass [--bars 17:24]
-  cusic patch apply ./patch.json
-")
- fmt.Print("  cusic log [-n 20]
-  cusic diff REV
-  cusic revert REV  (HEAD only)
-")
- fmt.Print("  cusic import song.mid
-  cusic export --format midi --out song.mid
-")
- fmt.Print("  cusic export --format synthv --track Teto --bars 1:8 --out teto.json
-")
- fmt.Print("  cusic validate
-
-Use CUSIC_PROJECT=/path/to/song to target a different project.
-")
+ fmt.Print("cusic — local-first music agent CLI\n\n")
+ fmt.Print("  cusic init --name Demo --tempo 168 [DIR]\n")
+ fmt.Print("  cusic status\n  cusic track add --name Bass [--kind instrument|drums|vocal] [--singer teto_sv2]\n")
+ fmt.Print("  cusic track list\n  cusic note add --track Bass --tick 0 --duration 480 --pitch 40 --velocity 100\n")
+ fmt.Print("  cusic inspect --track Bass [--bars 17:24]\n  cusic patch apply ./patch.json\n")
+ fmt.Print("  cusic log [-n 20]\n  cusic diff REV\n  cusic revert REV  (HEAD only)\n")
+ fmt.Print("  cusic import song.mid\n  cusic export --format midi --out song.mid\n")
+ fmt.Print("  cusic export --format synthv --track Teto --bars 1:8 --out teto.json\n")
+ fmt.Print("  cusic validate\n\nUse CUSIC_PROJECT=/path/to/song to target a different project.\n")
  return nil
 }
 func printJSON(value any)error{return json.NewEncoder(os.Stdout).Encode(value)}
@@ -114,8 +94,7 @@ func track(s *store.Store,args []string)error{
   name:=f.String("name","","name");kind:=f.String("kind","instrument","kind");singer:=f.String("singer","","singer")
   if err:=f.Parse(args[1:]);err!=nil{return err}
   t,r,err:=s.AddTrack(*name,*kind,*singer);if err!=nil{return err}
-  fmt.Printf("Added %s (%s), revision %d
-",t.Name,t.ID,r);return nil
+  fmt.Printf("Added %s (%s), revision %d\n",t.Name,t.ID,r);return nil
  }
  return errors.New("usage: cusic track add|list")
 }
@@ -126,8 +105,7 @@ func note(s *store.Store,args []string)error{
  duration:=f.Int64("duration",480,"ticks");pitch:=f.Int("pitch",60,"MIDI key");velocity:=f.Int("velocity",100,"velocity 1..127");lyric:=f.String("lyric","","lyric")
  if err:=f.Parse(args[1:]);err!=nil{return err}
  n,r,err:=s.AddNote(*tr,store.InputNote{Tick:*tick,Duration:*duration,Pitch:*pitch,Velocity:*velocity,Lyric:*lyric})
- if err!=nil{return err};fmt.Printf("Added note %s, revision %d
-",n.ID,r);return nil
+ if err!=nil{return err};fmt.Printf("Added note %s, revision %d\n",n.ID,r);return nil
 }
 func parseBars(v string)(int,int,error){
  if v==""{return 0,0,nil}
@@ -158,15 +136,13 @@ func patch(s *store.Store,args []string)error{
  dec:=json.NewDecoder(strings.NewReader(string(b)));dec.DisallowUnknownFields()
  if err=dec.Decode(&p);err!=nil{return err}
  if p.Notes==nil{return errors.New("patch.notes is required (use [] to delete notes)")}
- r,err:=s.ApplyPatch(p);if err!=nil{return err};fmt.Printf("Applied patch; HEAD %d
-",r);return nil
+ r,err:=s.ApplyPatch(p);if err!=nil{return err};fmt.Printf("Applied patch; HEAD %d\n",r);return nil
 }
 func importMIDI(s *store.Store,args []string)error{
  if len(args)<1{return errors.New("usage: cusic import song.mid")}
  song,err:=midifile.ReadFile(args[0]);if err!=nil{return err}
  r,err:=s.AddImported(song.Tracks,song.Tempo,song.MeterNum,song.MeterDen)
- if err!=nil{return err};fmt.Printf("Imported %d MIDI tracks; HEAD %d
-",len(song.Tracks),r)
+ if err!=nil{return err};fmt.Printf("Imported %d MIDI tracks; HEAD %d\n",len(song.Tracks),r)
  fmt.Fprintln(os.Stderr,"Note: MIDI controllers, tempo automation, program changes and expressive data are not imported.")
  return nil
 }
@@ -217,6 +193,5 @@ func export(s *store.Store,args []string)error{
 '));err!=nil{return err}
  default:return errors.New("unknown format; use midi or synthv")
  }
- fmt.Printf("Exported %s to %s
-",*format,*out);return nil
+ fmt.Printf("Exported %s to %s\n",*format,*out);return nil
 }
