@@ -92,6 +92,7 @@ func Init(dir string, s Settings) error {
  defer db.Close()
  if err:=configure(db);err!=nil{return err}
  if err:=schema(db);err!=nil{return err}
+ if err:=ensureAudioSchema(db);err!=nil{return err}
  s.PPQ=PPQ
  b,_:=json.Marshal(s)
  _,err=db.Exec("INSERT INTO settings(key,value) VALUES('project',?)",string(b))
@@ -102,6 +103,7 @@ func Open(dir string)(*Store,error){
  db,err:=sql.Open("sqlite",DBPath(root));if err!=nil{return nil,err}
  db.SetMaxOpenConns(1)
  if err:=configure(db);err!=nil {db.Close();return nil,err}
+ if err:=ensureAudioSchema(db);err!=nil{db.Close();return nil,err}
  return &Store{DB:db,Root:root},nil
 }
 func configure(db *sql.DB)error{
@@ -231,6 +233,12 @@ func equalJSON(a,b json.RawMessage)bool{
 }
 func currentState(tx *sql.Tx,c Change)(json.RawMessage,error){
  switch c.Entity{
+ case "asset":
+  var a Asset;var stats string
+  err:=tx.QueryRow("SELECT id,name,path,stats_json FROM audio_assets WHERE id=?",c.ID).Scan(&a.ID,&a.Name,&a.Path,&stats)
+  if errors.Is(err,sql.ErrNoRows){return nil,nil};if err!=nil{return nil,err}
+  if err=json.Unmarshal([]byte(stats),&a.Stats);err!=nil{return nil,err}
+  return raw(a),nil
  case "settings":
   var value string
   err:=tx.QueryRow("SELECT value FROM settings WHERE key='project'").Scan(&value)
@@ -258,15 +266,16 @@ func (s *Store) Revert(id int64)(int64,error){
  var cs []Change;if err=json.Unmarshal([]byte(b),&cs);err!=nil{return 0,err}
  for _,c:=range cs{state,e:=currentState(tx,c);if e!=nil{return 0,e};if !equalJSON(state,c.After){return 0,fmt.Errorf("%s %s was modified outside cusic; refusing revert",c.Entity,c.ID)}}
  // Delete notes before tracks, then upsert tracks before notes (foreign keys).
- for _,typ:=range []string{"note","track"} {
+ for _,typ:=range []string{"note","asset","track"} {
   for _,c:=range cs{if c.Entity!=typ||!isNullJSON(c.Before){continue}
-   table:="notes";if typ=="track"{table="tracks"}
+   table:="notes";if typ=="track"{table="tracks"};if typ=="asset"{table="audio_assets"}
    if _,err=tx.Exec("DELETE FROM "+table+" WHERE id=?",c.ID);err!=nil{return 0,err}
   }
  }
- for _,typ:=range []string{"track","note"}{
+ for _,typ:=range []string{"track","asset","note"}{
   for _,c:=range cs{if c.Entity!=typ||isNullJSON(c.Before){continue}
    if typ=="track"{var t Track;if err=json.Unmarshal(c.Before,&t);err!=nil{return 0,err};err=putTrack(tx,t)
+   }else if typ=="asset"{var a Asset;if err=json.Unmarshal(c.Before,&a);err!=nil{return 0,err};err=putAsset(tx,a)
    }else{var n Note;if err=json.Unmarshal(c.Before,&n);err!=nil{return 0,err};err=putNote(tx,n)}
    if err!=nil{return 0,err}
   }
