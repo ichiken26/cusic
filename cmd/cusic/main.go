@@ -6,6 +6,7 @@ import (
  "flag"
  "fmt"
  "os"
+ "io/fs"
  "os/exec"
  "path/filepath"
  "strconv"
@@ -188,16 +189,19 @@ func suno(s *store.Store,args []string)error{
  case "import":
   if len(args)<2{return errors.New("usage: cusic suno import STEMS_DIR")}
   folder:=args[1]
-  entries,err:=os.ReadDir(folder);if err!=nil{return err}
   found:=0
-  for _,entry:=range entries{
-   if entry.IsDir()||strings.ToLower(filepath.Ext(entry.Name()))!=".wav"{continue}
-   filename:=filepath.Join(folder,entry.Name())
-   a,rev,err:=s.AddAudioFile(filename,strings.TrimSuffix(entry.Name(),filepath.Ext(entry.Name())))
-   if err!=nil{return err}
+  err:=filepath.WalkDir(folder,func(filename string,entry fs.DirEntry,visitErr error)error{
+   if visitErr!=nil{return visitErr}
+   if entry.IsDir()||strings.ToLower(filepath.Ext(entry.Name()))!=".wav"{return nil}
+   if found>=2048{return errors.New("too many WAV stems (max 2048)")}
+   rel,err:=filepath.Rel(folder,filename);if err!=nil{return err}
+   name:=strings.TrimSuffix(filepath.ToSlash(rel),filepath.Ext(rel))
+   a,rev,err:=s.AddAudioFile(filename,name);if err!=nil{return err}
    fmt.Printf("Imported %s (%.2fs, %.0f Hz), HEAD %d\n",a.Name,a.Stats.Duration,float64(a.Stats.SampleRate),rev);found++
-  }
-  if found==0{return errors.New("no WAV stems in folder; export WAVs from Suno Studio first")}
+   return nil
+  })
+  if err!=nil{return err}
+  if found==0{return errors.New("no WAV stems under folder; export WAVs from Suno Studio first")}
   return nil
  case "separate","transcribe":
   f:=flag.NewFlagSet("suno "+args[0],flag.ContinueOnError)

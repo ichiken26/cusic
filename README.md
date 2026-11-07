@@ -86,7 +86,7 @@ cusic audio list
 cusic export --format dawproject --out cubase-arrangement.dawproject
 ~~~
 
-SunoステムはSHA-256を付けて `.cusic/audio/` にコピーし、SQLiteにはファイル位置とWAV解析メタデータのみ記録する。対応はPCM 16/24/32-bit / Float 32/64-bit RIFF WAV（RF64などは未対応）。
+Demucsのように複数階層で書き出されるディレクトリも再帰的に読み込める。SunoステムはSHA-256を付けて `.cusic/audio/` にコピーし、SQLiteにはファイル位置とWAV解析メタデータのみ記録する。対応はPCM 16/24/32-bit / Float 32/64-bit RIFF WAV（RF64などは未対応）。
 
 WAVしかないとき、**任意の追加インストール**で分離や推定MIDIが使える。
 
