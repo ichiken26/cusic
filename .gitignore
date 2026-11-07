@@ -1,0 +1,14 @@
+.cusic/
+*.cpr
+*.wav
+*.flac
+*.mp3
+*.mid
+*.midi
+*.svp
+*.vsqx
+*.tg
+*.gp*
+synthv/node_modules/
+synthv/dist/
+.DS_Store
