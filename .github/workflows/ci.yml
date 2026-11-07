@@ -10,6 +10,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23'
+          cache: false
       - name: Download modules and test
         run: |
           go mod download
@@ -34,3 +35,35 @@ jobs:
         run: |
           test -f dist/cusic-synthv.js
           if grep -E '^import |require[(]' dist/cusic-synthv.js; then exit 1; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cusic-synthv-scripts
+          path: |
+            synthv/dist/cusic-synthv.js
+            synthv/dist/host/
+  binaries:
+    needs: go
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows-amd64
+            ext: .exe
+          - os: ubuntu-latest
+            name: linux-amd64
+            ext: ''
+          - os: macos-latest
+            name: macos-arm64
+            ext: ''
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: false
+      - run: go build -mod=mod -o cusic${{ matrix.ext }} ./cmd/cusic
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cusic-${{ matrix.name }}
+          path: cusic${{ matrix.ext }}
