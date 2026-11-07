@@ -25,6 +25,8 @@ go build -o ./bin/cusic ./cmd/cusic
 ./bin/cusic help
 ~~~
 
+GitHub Actions also builds downloadable Windows, macOS and Linux CLI binaries and a compiled SynthV script artifact for this branch. Find them in the successful workflow run's **Artifacts** section.
+
 Install in PATH as desired. The examples below assume `cusic` is on PATH, or use the built `./bin/cusic` executable. By default commands search the current directory and parents for `.cusic/project.db`; set `CUSIC_PROJECT=/path/to/project` to override.
 
 ## Start a song
@@ -87,10 +89,11 @@ This approach meets the TypeScript + Zod requirement while respecting SynthV 2's
 ## Reliability, security and limitations
 
 - SQLite handles transactional updates. A revision is an application-level record, not a Git commit. `revert` only works on the latest revision.
+- Exports refuse to overwrite existing files; choose a new output path.
 - Existing Cubase or SynthV edits are **not automatically mirrored** into SQLite. Export and re-import via new MIDI tracks when needed; avoid overwriting source data.
 - No audio DSP, AI inference or Suno-to-MIDI transcription is bundled. Claude Code/Codex decide the musical notes, then call cusic.
 - MusicXML, native TuxGuitar, DAWproject, VSQX, full MIDI expressive events, advanced tempo maps and branching histories remain future adapters.
-- MIDI import's initial tempo/meter is set for an empty project. A revert of that import does not currently reset project-level tempo/meter metadata.
+- MIDI import's initial tempo/meter is included in its revision, so reverting an initial import also restores the project settings.
 - Backup a live SQLite project using SQLite's backup mechanism (not a blind copy of only the DB file during WAL writes). The `.cusic` directory is gitignored.
 
 ## Development
