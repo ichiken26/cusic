@@ -113,6 +113,8 @@ func Export(template []byte,settings store.Settings,track store.Track,notes []st
  // because its timing may no longer match the newly generated notes.
  sorted:=append([]store.Note(nil),notes...)
  sort.Slice(sorted,func(i,j int)bool{return sorted[i].Tick<sorted[j].Tick})
+ var originalStyle *elem
+ for _,node:=range part.Children{if node.Name.Local=="note" && node.child("nStyle")!=nil{originalStyle=node.child("nStyle");break}}
  filtered:=[]*elem{}
  for _,c:=range part.Children{
   if c.Name.Local=="note"||c.Name.Local=="mCtrl"{continue}
@@ -120,8 +122,6 @@ func Export(template []byte,settings store.Settings,track store.Track,notes []st
  }
  part.Children=filtered
  // Carry a note style from the Piapro-created template when available.
- var originalStyle *elem
- for _,node:=range parts[0].Children{if node.Name.Local=="note"{originalStyle=node.child("nStyle");break}}
  if originalStyle==nil{
   originalStyle=&elem{Name:xml.Name{Local:"nStyle",Space:root.Name.Space}}
   defaults:=[]struct{Key string;Value string}{{"accent","50"},{"bendDep","8"},{"bendLen","0"},{"decay","50"},{"fallPort","0"},{"opening","127"},{"risePort","0"},{"vibLen","0"},{"vibType","0"}}
