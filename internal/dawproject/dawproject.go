@@ -193,8 +193,8 @@ func ReadFile(file string)(Imported,error){
   tr,ok:=byID[lane.Track];if !ok||tr.Channel.Role=="master"{continue}
   parsed:=store.ImportedTrack{Name:tr.Name,Kind:"instrument",Notes:[]store.InputNote{}}
   if strings.Contains(tr.ContentType,"notes") {
-   if lane.Clips!=nil{for _,clip:=range lane.Clips.Items{gatherNotes(clip,clip.Time,&parsed.Notes)}}
-   if len(parsed.Notes)>0{result.Song.Tracks=append(result.Song.Tracks,parsed)}
+   if lane.Clips!=nil{for _,clip:=range lane.Clips.Items{if err:=gatherNotes(clip,clip.Time,&parsed.Notes);err!=nil{return result,err}}}
+   result.Song.Tracks=append(result.Song.Tracks,parsed)
   }
   if strings.Contains(tr.ContentType,"audio")&&lane.Clips!=nil{
    for _,clip:=range lane.Clips.Items{
@@ -205,17 +205,19 @@ func ReadFile(file string)(Imported,error){
  }
  return result,nil
 }
-func gatherNotes(c clip,clipStart float64,dest *[]store.InputNote){
+func gatherNotes(c clip,clipStart float64,dest *[]store.InputNote)error{
  if c.Notes!=nil{
   for _,n:=range c.Notes.Notes{
    tick:=int64(math.Round((clipStart+n.Time)*float64(store.PPQ)))
    duration:=int64(math.Round(n.Duration*float64(store.PPQ)))
    velocity:=int(math.Round(n.Vel*127));if velocity==0{velocity=100}
    item:=store.InputNote{Tick:tick,Duration:duration,Pitch:n.Key,Velocity:velocity}
-   if store.Validate(item)==nil{*dest=append(*dest,item)}
+   if err:=store.Validate(item);err!=nil{return fmt.Errorf("invalid DAWproject note at %.3f beats: %w",n.Time,err)}
+   *dest=append(*dest,item)
   }
  }
- if c.Clips!=nil{for _,child:=range c.Clips.Items{gatherNotes(child,clipStart+child.Time,dest)}}
+ if c.Clips!=nil{for _,child:=range c.Clips.Items{if err:=gatherNotes(child,clipStart+child.Time,dest);err!=nil{return err}}}
+ return nil
 }
 func clipAudioPath(c clip)string{
  if c.Audio!=nil{return c.Audio.File.Path}

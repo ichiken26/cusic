@@ -56,7 +56,7 @@ func (e *elem)encode(enc *xml.Encoder)error{
  for _,c:=range e.Children{if err:=c.encode(enc);err!=nil{return err}}
  return enc.EncodeToken(xml.EndElement{Name:name})
 }
-func shortPhoneme(s string)string{
+func shortPhoneme(s string)(string,bool){
  // Simple syllables. Complex Japanese lyrics need review in Piapro Studio.
  mapKana:=map[string]string{
   "あ":"a","い":"i","う":"M","え":"e","お":"o",
@@ -84,9 +84,12 @@ func shortPhoneme(s string)string{
  }
  // one note per Japanese mora is recommended. Unknown syllables use "a" as a
  // visible placeholder and must be tuned after import.
- s=strings.TrimSpace(s);if v,ok:=mapKana[s];ok{return v}
- if s=="ー"||s=="-" {return "a"}
- return "a"
+ s=strings.TrimSpace(s)
+ // Normalize katakana to hiragana to reuse the same pronunciation table.
+ runes:=[]rune(s);for i,r:=range runes{if r>=0x30A1&&r<=0x30F6{runes[i]=r-0x60}}
+ normalized:=string(runes)
+ if v,ok:=mapKana[normalized];ok{return v,true}
+ return "",false
 }
 func Export(template []byte,settings store.Settings,track store.Track,notes []store.Note)([]byte,error){
  root,err:=parse(template);if err!=nil{return nil,err}
@@ -116,6 +119,16 @@ func Export(template []byte,settings store.Settings,track store.Track,notes []st
   filtered=append(filtered,c)
  }
  part.Children=filtered
+ // Carry a note style from the Piapro-created template when available.
+ var originalStyle *elem
+ for _,node:=range parts[0].Children{if node.Name.Local=="note"{originalStyle=node.child("nStyle");break}}
+ if originalStyle==nil{
+  originalStyle=&elem{Name:xml.Name{Local:"nStyle",Space:root.Name.Space}}
+  defaults:=[]struct{Key string;Value string}{{"accent","50"},{"bendDep","8"},{"bendLen","0"},{"decay","50"},{"fallPort","0"},{"opening","127"},{"risePort","0"},{"vibLen","0"},{"vibType","0"}}
+  for _,d:=range defaults{
+   originalStyle.Children=append(originalStyle.Children,&elem{Name:xml.Name{Local:"v",Space:root.Name.Space},Attrs:[]xml.Attr{{Name:xml.Name{Local:"id"},Value:d.Key}},Text:d.Value})
+  }
+ }
  last:=int64(0)
  for _,n:=range sorted{
   if n.TrackID!=track.ID{return nil,fmt.Errorf("note %s belongs to another track",n.ID)}
@@ -127,7 +140,10 @@ func Export(template []byte,settings store.Settings,track store.Track,notes []st
   noteElem.set("n",strconv.Itoa(n.Pitch))
   noteElem.set("v",strconv.Itoa(n.Velocity))
   lyric:=n.Lyric;if lyric==""{lyric="あ"}
-  noteElem.set("y",lyric);noteElem.set("p",shortPhoneme(lyric))
+  phoneme,ok:=shortPhoneme(lyric)
+  if !ok{return nil,fmt.Errorf("unknown lyric %q on note %s: provide one hiragana/katakana mora per note (kanji must be converted to kana)",lyric,n.ID)}
+  noteElem.set("y",lyric);noteElem.set("p",phoneme)
+  noteElem.Children=append(noteElem.Children,originalStyle)
   part.Children=append(part.Children,noteElem)
  }
  part.set("playTime",strconv.FormatInt(last+store.PPQ*4,10))

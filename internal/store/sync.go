@@ -15,6 +15,8 @@ type SyncTrack struct{
  Existing int `json:"existing"`
  Incoming int `json:"incoming"`
  Changed bool `json:"changed"`
+ Skipped bool `json:"skipped"`
+ Reason string `json:"reason,omitempty"`
 }
 func matchNotes(before []Note,after []InputNote)bool{
  if len(before)!=len(after){return false}
@@ -40,6 +42,7 @@ func (s *Store) PreviewSync(incoming []ImportedTrack)(SyncPlan,error){
   if seen[part.Name]{return plan,fmt.Errorf("ambiguous DAWproject track %q",part.Name)}
   seen[part.Name]=true
   t,err:=s.Track(part.Name);if err!=nil{return plan,fmt.Errorf("sync only supports existing track %q: %w",part.Name,err)}
+  if t.Kind=="vocal" {plan.Tracks=append(plan.Tracks,SyncTrack{Name:t.Name,Skipped:true,Reason:"vocal notes/lyrics must be edited in SynthV or Piapro"});continue}
   for _,note:=range part.Notes{if err:=Validate(note);err!=nil{return plan,err}}
   previous,err:=s.Notes(t.ID,0,0);if err!=nil{return plan,err}
   plan.Tracks=append(plan.Tracks,SyncTrack{Name:t.Name,Existing:len(previous),Incoming:len(part.Notes),Changed:!matchNotes(previous,part.Notes)})
@@ -54,7 +57,7 @@ func (s *Store) SyncTracks(incoming []ImportedTrack,expected int64)(int64,error)
  if head!=expected{return 0,fmt.Errorf("concurrent edit at revision %d; re-preview sync",head)}
  changes:=[]Change{}
  for i,part:=range incoming{
-  if !plan.Tracks[i].Changed{continue}
+  if plan.Tracks[i].Skipped||!plan.Tracks[i].Changed{continue}
   var t Track
   if err:=tx.QueryRow("SELECT id,name,kind,singer FROM tracks WHERE name=?",part.Name).Scan(&t.ID,&t.Name,&t.Kind,&t.Singer);err!=nil{return 0,err}
   rows,err:=tx.Query("SELECT id,track_id,tick,duration,pitch,velocity,lyric FROM notes WHERE track_id=? ORDER BY tick,id",t.ID)
