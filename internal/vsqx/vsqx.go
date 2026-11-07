@@ -40,10 +40,21 @@ func (e *elem)set(name,value string){
  e.Children=append(e.Children,&elem{Name:xml.Name{Space:e.Name.Space,Local:name},Text:value})
 }
 func (e *elem)encode(enc *xml.Encoder)error{
- if err:=enc.EncodeToken(xml.StartElement{Name:e.Name,Attr:e.Attrs});err!=nil{return err}
+ // Preserve the template's root default namespace instead of asking Go's encoder
+ // to repeatedly declare it on every descendant (or duplicate it on the root).
+ name:=xml.Name{Local:e.Name.Local}
+ attrs:=make([]xml.Attr,0,len(e.Attrs))
+ for _,a:=range e.Attrs{
+  switch {
+  case a.Name.Space=="xmlns":a.Name=xml.Name{Local:"xmlns:"+a.Name.Local}
+  case a.Name.Space=="http://www.w3.org/2001/XMLSchema-instance":a.Name=xml.Name{Local:"xsi:"+a.Name.Local}
+  }
+  attrs=append(attrs,a)
+ }
+ if err:=enc.EncodeToken(xml.StartElement{Name:name,Attr:attrs});err!=nil{return err}
  if e.Text!=""{if err:=enc.EncodeToken(xml.CharData(e.Text));err!=nil{return err}}
  for _,c:=range e.Children{if err:=c.encode(enc);err!=nil{return err}}
- return enc.EncodeToken(xml.EndElement{Name:e.Name})
+ return enc.EncodeToken(xml.EndElement{Name:name})
 }
 func shortPhoneme(s string)string{
  // Simple syllables. Complex Japanese lyrics need review in Piapro Studio.
