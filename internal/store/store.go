@@ -222,8 +222,10 @@ func (s *Store) Revision(id int64)(Revision,error){
  err:=s.DB.QueryRow("SELECT id,at,operation,message,changes_json FROM revisions WHERE id=?",id).Scan(&r.ID,&r.At,&r.Operation,&r.Message,&raw);if err!=nil{return r,err}
  err=json.Unmarshal([]byte(raw),&r.Changes);return r,err
 }
+func isNullJSON(v json.RawMessage) bool { return len(v)==0 || string(v)=="null" }
 func equalJSON(a,b json.RawMessage)bool{
- if len(a)==0&&len(b)==0{return true};var x,y any
+ if isNullJSON(a)||isNullJSON(b){return isNullJSON(a)&&isNullJSON(b)}
+ var x,y any
  if json.Unmarshal(a,&x)!=nil||json.Unmarshal(b,&y)!=nil{return false}
  return reflect.DeepEqual(x,y)
 }
@@ -250,13 +252,13 @@ func (s *Store) Revert(id int64)(int64,error){
  for _,c:=range cs{state,e:=currentState(tx,c);if e!=nil{return 0,e};if !equalJSON(state,c.After){return 0,fmt.Errorf("%s %s was modified outside cusic; refusing revert",c.Entity,c.ID)}}
  // Delete notes before tracks, then upsert tracks before notes (foreign keys).
  for _,typ:=range []string{"note","track"} {
-  for _,c:=range cs{if c.Entity!=typ||len(c.Before)>0{continue}
+  for _,c:=range cs{if c.Entity!=typ||!isNullJSON(c.Before){continue}
    table:="notes";if typ=="track"{table="tracks"}
    if _,err=tx.Exec("DELETE FROM "+table+" WHERE id=?",c.ID);err!=nil{return 0,err}
   }
  }
  for _,typ:=range []string{"track","note"}{
-  for _,c:=range cs{if c.Entity!=typ||len(c.Before)==0{continue}
+  for _,c:=range cs{if c.Entity!=typ||isNullJSON(c.Before){continue}
    if typ=="track"{var t Track;if err=json.Unmarshal(c.Before,&t);err!=nil{return 0,err};err=putTrack(tx,t)
    }else{var n Note;if err=json.Unmarshal(c.Before,&n);err!=nil{return 0,err};err=putNote(tx,n)}
    if err!=nil{return 0,err}

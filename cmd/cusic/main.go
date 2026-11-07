@@ -189,8 +189,7 @@ func export(s *store.Store,args []string)error{
    Notes []store.Note `json:"notes"`
   }{1,t.ID,t.Name,store.PPQ,from,to,ns}
   b,err:=json.MarshalIndent(payload,"","  ");if err!=nil{return err}
-  if err=writeFileAtomic(*out,append(b,'
-'));err!=nil{return err}
+  if err=writeFileAtomic(*out,append(b,'\n'));err!=nil{return err}
  default:return errors.New("unknown format; use midi or synthv")
  }
  fmt.Printf("Exported %s to %s\n",*format,*out);return nil
