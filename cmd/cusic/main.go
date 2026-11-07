@@ -6,6 +6,7 @@ import (
  "flag"
  "fmt"
  "os"
+ "os/exec"
  "path/filepath"
  "strconv"
  "strings"
@@ -87,7 +88,7 @@ func help()error{
  fmt.Print("  cusic log [-n 20]\n  cusic diff REV\n  cusic revert REV  (HEAD only)\n")
  fmt.Print("  cusic import song.mid\n  cusic export --format midi --out song.mid\n")
  fmt.Print("  cusic export --format synthv --track Teto --bars 1:8 --out teto.json\n")
- fmt.Print("  cusic import demo.tg | demo.dawproject | demo.mid\n  cusic suno import ./stems\n  cusic audio list\n")
+ fmt.Print("  cusic import demo.tg | demo.dawproject | demo.mid\n  cusic suno import ./stems\n  cusic suno separate --out ./stems song.wav\n  cusic suno transcribe --out ./midi stem.wav\n  cusic audio list\n")
  fmt.Print("  cusic export --format vsqx --track Miku --template piapro.vsqx --out miku.vsqx\n  cusic export --format dawproject --out cubase.dawproject\n")
  fmt.Print("  cusic sync plan --from cubase-export.dawproject\n  cusic sync pull --from cubase-export.dawproject --base-revision 12\n")
  fmt.Print("  cusic validate\n\nUse CUSIC_PROJECT=/path/to/song to target a different project.\n")
@@ -182,19 +183,45 @@ func importSong(s *store.Store,args []string)error{
  return nil
 }
 func suno(s *store.Store,args []string)error{
- if len(args)<2||args[0]!="import"{return errors.New("usage: cusic suno import ./stems-dir")}
- folder:=args[1]
- entries,err:=os.ReadDir(folder);if err!=nil{return err}
- found:=0
- for _,entry:=range entries{
-  if entry.IsDir()||strings.ToLower(filepath.Ext(entry.Name()))!=".wav"{continue}
-  filename:=filepath.Join(folder,entry.Name())
-  a,rev,err:=s.AddAudioFile(filename,strings.TrimSuffix(entry.Name(),filepath.Ext(entry.Name())))
-  if err!=nil{return err}
-  fmt.Printf("Imported %s (%.2fs, %.0f Hz), HEAD %d\n",a.Name,a.Stats.Duration,float64(a.Stats.SampleRate),rev);found++
+ if len(args)<1{return errors.New("usage: cusic suno import STEMS_DIR | separate --out DIR MIX.wav | transcribe --out DIR STEM.wav")}
+ switch args[0]{
+ case "import":
+  if len(args)<2{return errors.New("usage: cusic suno import STEMS_DIR")}
+  folder:=args[1]
+  entries,err:=os.ReadDir(folder);if err!=nil{return err}
+  found:=0
+  for _,entry:=range entries{
+   if entry.IsDir()||strings.ToLower(filepath.Ext(entry.Name()))!=".wav"{continue}
+   filename:=filepath.Join(folder,entry.Name())
+   a,rev,err:=s.AddAudioFile(filename,strings.TrimSuffix(entry.Name(),filepath.Ext(entry.Name())))
+   if err!=nil{return err}
+   fmt.Printf("Imported %s (%.2fs, %.0f Hz), HEAD %d\n",a.Name,a.Stats.Duration,float64(a.Stats.SampleRate),rev);found++
+  }
+  if found==0{return errors.New("no WAV stems in folder; export WAVs from Suno Studio first")}
+  return nil
+ case "separate","transcribe":
+  f:=flag.NewFlagSet("suno "+args[0],flag.ContinueOnError)
+  out:=f.String("out","","new directory for generated stems/MIDI")
+  if err:=f.Parse(args[1:]);err!=nil{return err}
+  if *out==""||f.NArg()!=1{return fmt.Errorf("usage: cusic suno %s --out NEW_DIR source.wav",args[0])}
+  source:=f.Arg(0)
+  if _,err:=os.Stat(source);err!=nil{return err}
+  if _,err:=os.Stat(*out);err==nil{return errors.New("output directory exists: choose a new directory to avoid overwriting audio")}else if !errors.Is(err,os.ErrNotExist){return err}
+  if err:=os.MkdirAll(*out,0755);err!=nil{return err}
+  var tool string;var argv []string
+  if args[0]=="separate"{
+   tool="demucs";argv=[]string{"-o",*out,source}
+  }else{
+   tool="basic-pitch";argv=[]string{*out,source}
+  }
+  if _,err:=exec.LookPath(tool);err!=nil{return fmt.Errorf("%s is not installed in PATH; see README for optional audio dependencies",tool)}
+  cmd:=exec.Command(tool,argv...)
+  cmd.Stdout=os.Stdout;cmd.Stderr=os.Stderr
+  if err:=cmd.Run();err!=nil{return fmt.Errorf("%s failed: %w",tool,err)}
+  fmt.Printf("Generated %s files in %s; inspect results before importing\n",args[0],*out)
+  return nil
  }
- if found==0{return errors.New("no WAV stems in folder; export WAVs from Suno Studio first")}
- return nil
+ return errors.New("usage: cusic suno import|separate|transcribe")
 }
 func audioCommand(s *store.Store,args []string)error{
  if len(args)!=1||args[0]!="list"{return errors.New("usage: cusic audio list")}
