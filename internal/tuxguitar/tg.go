@@ -66,7 +66,7 @@ type note struct {
 const (
  // Least common multiple of 64,3,5,6,7,9,10,11,12,13 multiplied by four.
  // This is precisely the timeline quantum TuxGuitar 2.x stores.
- wholePrecise int64 = 5765760
+ wholePrecise int64 = 11531520
 )
 func ReadFile(path string)(midifile.Song,error){
  r,err:=zip.OpenReader(path);if err!=nil{return midifile.Song{},errors.New("cannot read .tg ZIP; for TuxGuitar 1.x export MIDI or upgrade the .tg file to 2.x")}
