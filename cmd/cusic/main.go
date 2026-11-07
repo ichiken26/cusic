@@ -147,6 +147,7 @@ func importMIDI(s *store.Store,args []string)error{
  return nil
 }
 func writeFileAtomic(path string,b []byte)error{
+ if _,err:=os.Stat(path);err==nil{return fmt.Errorf("output already exists: %s; choose a new path",path)}else if !errors.Is(err,os.ErrNotExist){return err}
  dir:=filepath.Dir(path);if err:=os.MkdirAll(dir,0755);err!=nil{return err}
  tmp,err:=os.CreateTemp(dir,".cusic-out-*");if err!=nil{return err}
  defer os.Remove(tmp.Name())

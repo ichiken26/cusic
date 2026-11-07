@@ -30,3 +30,18 @@ func TestRefuseCrossBoundaryAndInvalidNote(t *testing.T){
  if _,err=s.ApplyPatch(Patch{BaseRevision:head,Track:track.ID,FromBar:2,ToBar:2,Notes:[]InputNote{}});err==nil{t.Fatal("boundary-crossing note was erased")}
  if _,_,err=s.AddNote(track.ID,InputNote{Tick:0,Duration:-1,Pitch:60,Velocity:100});err==nil{t.Fatal("accepted negative duration")}
 }
+
+func TestMIDIImportSettingsRevert(t *testing.T){
+ root:=t.TempDir()
+ if err:=Init(root,Settings{Name:"test",Tempo:120,MeterNum:4,MeterDen:4});err!=nil{t.Fatal(err)}
+ s,err:=Open(root);if err!=nil{t.Fatal(err)};defer s.Close()
+ rev,err:=s.AddImported([]ImportedTrack{{Name:"Bass",Kind:"instrument",Notes:[]InputNote{{Tick:0,Duration:480,Pitch:40,Velocity:90}}}},168,3,4)
+ if err!=nil{t.Fatal(err)}
+ cfg,err:=s.Settings();if err!=nil{t.Fatal(err)}
+ if cfg.Tempo!=168||cfg.MeterNum!=3{t.Fatalf("wrong imported settings: %+v",cfg)}
+ if _,err:=s.Revert(rev);err!=nil{t.Fatal(err)}
+ cfg,err=s.Settings();if err!=nil{t.Fatal(err)}
+ if cfg.Tempo!=120||cfg.MeterNum!=4{t.Fatalf("settings not reverted: %+v",cfg)}
+ tracks,err:=s.Tracks();if err!=nil{t.Fatal(err)}
+ if len(tracks)!=0{t.Fatalf("imported tracks not reverted: %+v",tracks)}
+}

@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { payloadSchema } from "./schema.js";
@@ -24,6 +24,7 @@ if (!template.includes(needle) || template.indexOf(needle) !== template.lastInde
   throw new Error("Unexpected cusic bridge template format");
 }
 const built = template.replace(needle, JSON.stringify(JSON.stringify(parsed.data)));
+if (existsSync(output)) throw new Error("Output script already exists; choose a new filename.");
 mkdirSync(dirname(resolve(output)), { recursive: true });
 writeFileSync(output, built, "utf8");
 console.log("Created validated SynthV script: " + output);

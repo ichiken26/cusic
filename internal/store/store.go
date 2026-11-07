@@ -231,6 +231,13 @@ func equalJSON(a,b json.RawMessage)bool{
 }
 func currentState(tx *sql.Tx,c Change)(json.RawMessage,error){
  switch c.Entity{
+ case "settings":
+  var value string
+  err:=tx.QueryRow("SELECT value FROM settings WHERE key='project'").Scan(&value)
+  if err!=nil{return nil,err}
+  var settings Settings
+  if err=json.Unmarshal([]byte(value),&settings);err!=nil{return nil,err}
+  return raw(settings),nil
  case "note":
   var n Note
   err:=tx.QueryRow("SELECT id,track_id,tick,duration,pitch,velocity,lyric FROM notes WHERE id=?",c.ID).Scan(&n.ID,&n.TrackID,&n.Tick,&n.Duration,&n.Pitch,&n.Velocity,&n.Lyric)
@@ -265,6 +272,13 @@ func (s *Store) Revert(id int64)(int64,error){
   }
  }
  inverse:=make([]Change,len(cs));for i,c:=range cs{inverse[i]=Change{Entity:c.Entity,ID:c.ID,Before:c.After,After:c.Before}}
+ for _,c:=range cs{
+  if c.Entity=="settings"&&!isNullJSON(c.Before){
+   var settings Settings;if err=json.Unmarshal(c.Before,&settings);err!=nil{return 0,err}
+   b,_:=json.Marshal(settings)
+   if _,err=tx.Exec("UPDATE settings SET value=? WHERE key='project'",string(b));err!=nil{return 0,err}
+  }
+ }
  rev,err:=record(tx,"revert",fmt.Sprintf("Revert #%d: %s",id,msg),inverse)
  if err!=nil{return 0,err};return rev,tx.Commit()
 }
@@ -272,14 +286,18 @@ func (s *Store) AddImported(tracks []ImportedTrack,tempo,meterNum,meterDen int)(
  if len(tracks)==0{return 0,errors.New("no MIDI notes found")}
  settings,err:=s.Settings();if err!=nil{return 0,err}
  // Reject incompatible timing: avoid silently shifting the existing project.
- if count,_:=s.DB.Query("SELECT 1 FROM tracks LIMIT 1");count!=nil{if count.Next(){count.Close();if settings.Tempo!=tempo||settings.MeterNum!=meterNum||settings.MeterDen!=meterDen{return 0,errors.New("MIDI tempo/meter mismatch with project; import into a matching project")}}else{count.Close()}}
  tx,err:=s.DB.Begin();if err!=nil{return 0,err};defer tx.Rollback()
  var existing int;if err=tx.QueryRow("SELECT COUNT(*) FROM tracks").Scan(&existing);err!=nil{return 0,err}
- if existing==0 {
-  settings.Tempo,settings.MeterNum,settings.MeterDen=tempo,meterNum,meterDen
-  b,_:=json.Marshal(settings);if _,err=tx.Exec("UPDATE settings SET value=? WHERE key='project'",string(b));err!=nil{return 0,err}
- }
+ if existing!=0 && (settings.Tempo!=tempo||settings.MeterNum!=meterNum||settings.MeterDen!=meterDen) {return 0,errors.New("MIDI tempo/meter mismatch with project; import into a matching project")}
  cs:=[]Change{}
+ if existing==0 {
+  before:=settings
+  settings.Tempo,settings.MeterNum,settings.MeterDen=tempo,meterNum,meterDen
+  if before!=settings {
+   b,_:=json.Marshal(settings);if _,err=tx.Exec("UPDATE settings SET value=? WHERE key='project'",string(b));err!=nil{return 0,err}
+   cs=append(cs,newChange("settings","project",before,settings))
+  }
+ }
  for _,src:=range tracks{
   t:=Track{ID:ID(),Name:src.Name,Kind:src.Kind}
   if t.Kind==""{t.Kind="instrument"}
