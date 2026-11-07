@@ -1,0 +1,36 @@
+name: cusic CI
+on:
+  push:
+  pull_request:
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Download modules and test
+        run: |
+          go mod download
+          go test -mod=mod ./...
+          go vet -mod=mod ./...
+          go build -mod=mod -o ./bin/cusic ./cmd/cusic
+          ./bin/cusic help
+  synthv:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: synthv
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - run: npm test
+      - name: Confirm editor artifact has no runtime imports
+        run: |
+          test -f dist/cusic-synthv.js
+          if grep -E '^import |require[(]' dist/cusic-synthv.js; then exit 1; fi

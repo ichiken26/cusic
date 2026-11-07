@@ -1,0 +1,11 @@
+{
+  "baseRevision": 2,
+  "message": "Rewrite Bass bar 1 with two eighth-note pickups",
+  "track": "Bass",
+  "fromBar": 1,
+  "toBar": 1,
+  "notes": [
+    { "tick": 0, "duration": 240, "pitch": 40, "velocity": 100, "lyric": "" },
+    { "tick": 240, "duration": 240, "pitch": 43, "velocity": 96, "lyric": "" }
+  ]
+}
