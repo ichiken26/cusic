@@ -1,22 +1,32 @@
 # cusic
 
-**Cubase + music.** A local-first, headless music arrangement harness for Claude Code, Codex and humans. No cusic GUI and no Git embedded in the music engine.
+**Cubase + music** — Claude Code / Codex と一緒に楽曲を作るための、Go製ヘッドレスCLI。
+楽曲の音符と編集履歴は楽曲ごとのSQLite（`.cusic/project.db`）に保存する。cusic内部でGitは使わない。GUIも持たない。
 
-> **Status: early MVP.** The Go CLI and SQLite revision engine are implemented; Standard MIDI File note import/export and a TypeScript/Zod Synthesizer V 2 Pro script generator are included. Direct Cubase control, Suno stem separation/analysis, native `.tg` parsing, VSQX/Piapro V4X output, DAWproject and automatic two-way DAW synchronization are **not yet implemented**.
+> **開発中 / experimental**：ソースコードの変換・MIDI往復テストはCIで検証するが、Cubase / Piapro Studio V4X / Synthesizer V 2 Proの**実機による受け入れテストは未実施**。実制作前にテストプロジェクトとバックアップで確認してね。各ファイル形式の全機能を保持する変換ではない。
 
-## Architecture
+## できること
 
-- **Go CLI:** `cusic` (no daemon or web UI).
-- **SQLite project:** `.cusic/project.db`, with per-edit revisions and note/track change records; no Git inside.
-- **Score:** MIDI notes at **480 PPQ**, tempo and a single time signature per project.
-- **SynthV 2 Pro:** TypeScript source, Zod validation on the host, compiled standalone ES5.1 JavaScript executed inside Synthesizer V. No Node/Zod required in SynthV.
-- **Cubase:** import newly exported MIDI tracks; the app never modifies `.cpr` files.
-- **TuxGuitar:** use its *Export → MIDI* feature first. Source files are preserved.
-- **Suno:** use existing exported MIDI/stems as reference; direct audio conversion is future work.
+| 入出力 | コマンド | 対応範囲 |
+|---|---|---|
+| MIDI | `cusic import song.mid` / `cusic export --format midi` | SMF 0/1、固定テンポ・拍子の音符 |
+| TuxGuitar | `cusic import song.tg` | **2.x形式（ZIP + content.xml）**の音符・チューニング・簡易タイ |
+| Suno WAV | `cusic suno import ./stems` | ステムWAVの長さ、ピーク、RMS、SHA-256、SQLite登録 |
+| Suno分離 | `cusic suno separate --out ./stems mix.wav` | 別途インストールした **Demucs** を実行 |
+| Suno→MIDI | `cusic suno transcribe --out ./midi stem.wav` | 別途インストールした **Basic Pitch** を実行（推定精度は音源依存） |
+| Cubase | `cusic export --format dawproject --out song.dawproject` | 音符トラックとタイムライン先頭に揃えたWAVステムをZIPに格納 |
+| Cubaseから取り込み | `cusic import edit.dawproject` | DAWproject内の基本的な音符クリップ・WAVを新規トラックとして読み込む |
+| Cubase編集の同期 | `cusic sync plan/pull --from edit.dawproject` | 同名の**楽器トラックの音符のみ**、手動・差分確認付き同期 |
+| 初音ミク V4X | `cusic export --format vsqx --template empty.vsqx --track Miku --out miku.vsqx` | Piapro Studioで書き出したVOCALOID4テンプレートを利用 |
+| 重音テト SV2 | `cusic export --format synthv --track Teto --bars 1:8 --out teto.json` | TypeScript + Zod検証→ビルド済みES5.1 JSでSynthVへ反映 |
+| 履歴 | `cusic status/log/diff/revert` | SQLiteトランザクション単位の更新履歴。revertはHEADのみ |
 
-## Setup
+**Cubaseの `.cpr` ファイルを直接変更したり、画面をクリックして操作したり、編集中のCubaseとリアルタイム同期したりはしない。**
+CubaseではDAWprojectをインポート/エクスポートして受け渡す。
 
-Requires Go 1.23+, Node.js 22+ and npm (Node is needed only for the SynthV script builder).
+## インストール
+
+Go 1.23+。SynthVのJSを自分でビルドする場合のみNode.js 22+。
 
 ~~~bash
 git clone https://github.com/ichiken26/cusic.git
@@ -25,83 +35,124 @@ go build -o ./bin/cusic ./cmd/cusic
 ./bin/cusic help
 ~~~
 
-GitHub Actions also builds downloadable Windows, macOS and Linux CLI binaries and a compiled SynthV script artifact for this branch. Find them in the successful workflow run's **Artifacts** section.
+Windows/macOS/LinuxのバイナリとSynthV用JSはGitHub Actionsの成功した実行の **Artifacts** からも取得できる。以降の例では `cusic` がPATHにある前提。
 
-Install in PATH as desired. The examples below assume `cusic` is on PATH, or use the built `./bin/cusic` executable. By default commands search the current directory and parents for `.cusic/project.db`; set `CUSIC_PROJECT=/path/to/project` to override.
-
-## Start a song
+## 楽曲を開始
 
 ~~~bash
-mkdir -p ~/Music/my-song && cd ~/Music/my-song
-cusic init --name "Demo" --tempo 168 --meter 4/4
-cusic track add --name "Bass" --kind instrument
-cusic track add --name "Teto" --kind vocal --singer teto_sv2
-cusic note add --track Bass --tick 0 --duration 480 --pitch 40 --velocity 100
+mkdir my-song && cd my-song
+cusic init --name "My Song" --tempo 168 --meter 4/4
+cusic track add --name Bass --kind instrument
+cusic track add --name Teto --kind vocal --singer teto_sv2
+cusic track add --name Miku --kind vocal --singer miku_v4x
 cusic status
-cusic inspect --track Bass --bars 1:8
 ~~~
 
-MIDI pitch 40 = E2. One quarter note is 480 ticks; in 4/4 each bar contains 1920 ticks. `inspect` and `status` emit machine-readable JSON.
+1拍=480 ticks、4/4なら1小節=1920 ticks。各コマンドは現在のディレクトリから親を辿って `.cusic/project.db` を探す。別の場所にあるなら `CUSIC_PROJECT=/abs/path` を設定する。
 
-### Import a MIDI file
+### TuxGuitar / MIDIを読み込む
 
 ~~~bash
-cusic import /path/to/tuxguitar-export.mid
+cusic import /path/to/song.tg
+cusic import /path/to/song.mid
 cusic track list
-cusic export --format midi --out ./exports/arrangement.mid
+cusic inspect --track Bass --bars 17:24
 ~~~
 
-The importer accepts SMF format 0/1 PPQ files (multichannel notes supported). It splits channels into tracks, preserves note pitch/velocity/timing and reads an initial tempo/time signature. MIDI with tempo or meter changes, SMPTE timing, and missing note-offs is rejected. It does **not** retain CCs, pitch bends, text lyrics, program changes or other expressive events. If tracks already exist, a MIDI tempo/meter must match the project. This is intentionally conservative.
+`.tg` の直接読み込みは**TuxGuitar 2.xのZIP/XML形式だけ**。1.xのバイナリ `.tg` はTuxGuitarからMIDIを書き出して読み込む。ギターの運指、アーティキュレーション、ベンド、装飾などは現在の楽曲モデルに保持しない。テンポ/拍子の途中変更がある曲は、安全のため拒否する。
 
-### Edit a bounded interval safely
-
-Get the current revision ID via `cusic status`. Copy [examples/patch.json](examples/patch.json), update `baseRevision`, the track and note data, then apply:
+### Claude Code / Codexに部分編集を任せる
 
 ~~~bash
+cusic status
+cusic inspect --track Bass --bars 17:24
+# AIが現在のHEADをbaseRevisionに指定したpatch.jsonを生成
 cusic patch apply ./patch.json
-cusic diff 3
-cusic log -n 10
+cusic diff 12
+cusic log
 cusic validate
-cusic revert 3  # only if revision 3 is HEAD
+cusic revert 12 # 12がHEADのときだけ
 ~~~
 
-The patch **replaces all notes** in the inclusive bar range on **one track**. The DB transaction saves the changes and an inverse revision. Stale `baseRevision` is rejected; notes crossing the edit boundary are rejected. Revert is restricted to HEAD for safety; reverting creates a new revision that can itself be reverted. `diff REV` shows the change set stored for that revision (not a Git diff). Remember: a patch deletes any notes in the target range not included in `notes`.
+`examples/patch.json` に例がある。**指定トラックの指定小節に含まれる音符を完全置換**するため、残す音符もパッチに必ず含める。範囲をまたぐノートや古いHEADへのパッチは拒否する。修正後はCubaseに新しいファイルをエクスポートして聴き比べる。
 
-### Generate a Teto SV2 import script
+## Sunoの音源
 
-1. Create a *vocal* track named exactly like the track used in Synthesizer V Studio 2 Pro.
-2. Export a bounded payload from that vocal track.
-3. Compile the TypeScript bridge and use the Zod-backed script generator.
-4. Open the corresponding track's **main group** in SynthV and run the generated script from the *Scripts* menu. Save your SynthV project separately.
+Suno Studioから書き出した複数のWAVステムを、音符とは別のアセットとして保存する。
 
 ~~~bash
-cusic export --format synthv --track Teto --bars 1:8 --out teto.json
+cusic suno import /path/to/suno-stems
+cusic audio list
+cusic export --format dawproject --out cubase-arrangement.dawproject
+~~~
+
+Demucsのように複数階層で書き出されるディレクトリも再帰的に読み込める。SunoステムはSHA-256を付けて `.cusic/audio/` にコピーし、SQLiteにはファイル位置とWAV解析メタデータのみ記録する。対応はPCM 16/24/32-bit / Float 32/64-bit RIFF WAV（RF64などは未対応）。
+
+WAVしかないとき、**任意の追加インストール**で分離や推定MIDIが使える。
+
+~~~bash
+# 先に別途 pip 等で demucs と basic-pitch コマンドをインストール
+cusic suno separate --out ./separated-v1 /path/to/mix.wav
+cusic suno transcribe --out ./transcription-v1 /path/to/bass.wav
+# 推定結果をCubaseで確認してから...
+cusic import ./transcription-v1/<generated-file>.mid
+~~~
+
+Demucsは分離処理、Basic Pitchは**単一楽器ステムからの音高推定**用。どちらもcusic内部にモデルを配布するものではなく、PATH上の外部コマンドを起動する。モデルのダウンロード・利用規約・実行環境は各ツールに従う。自動で元曲の正確な原譜になるものではない。
+
+## Cubase ⇄ cusic（DAWproject）
+
+~~~bash
+# cusic → Cubase
+cusic export --format dawproject --out cubase-v1.dawproject
+# CubaseでインポートしてMIDIトラックを編集し、別名でDAWprojectをエクスポート
+
+# Cubase → cusic（先に差分を確認）
+cusic sync plan --from cubase-edited.dawproject
+# planで確認したbaseRevisionを指定
+cusic sync pull --from cubase-edited.dawproject --base-revision 12
+cusic log
+~~~
+
+同期は**Cubaseでエクスポートしたファイルを明示的に読み込む方式**。同名の楽器トラックを比較し、変更されたトラックの音符をSQLiteリビジョンに記録する。競合したHEADは拒否する。歌詞・歌唱表現の喪失防止のため、`kind=vocal` は同期対象外。Cubase固有のVST設定、CC、オートメーション、テンポマップ、拍の複雑な構成も維持・同期しない。
+
+実機でのDAWproject互換性は未確認なので、**既存Cubaseプロジェクトは上書きせずテスト用のコピーで使ってね。** エクスポートは既存ファイル名を上書きしない。
+
+## ミク V4X（VSQX）
+
+初音ミクV4Xの歌声ライブラリ情報を安全に維持するため、**手元のPiapro Studioから書き出したVSQXをテンプレート**に使う。ミクを設定した**1トラック・1パート・固定テンポ拍子**の短いテンプレートを用意してね。
+
+~~~bash
+cusic export --format vsqx --track Miku --template /path/to/miku-template.vsqx --out ./miku-v1.vsqx
+~~~
+
+テンプレートの歌手・声ライブラリ情報は保持し、音符・歌詞・基本発音を置き換える。歌詞は**1ノートにつき1つのひらがな/カタカナのモーラ**を推奨。漢字、複雑な促音、特殊な音節など対応外の発音はエラーになる。**Piapro Studio側で音素・ブレス・歌唱パラメータの最終調整が必要**。Piapro実機でのインポート確認は未実施。
+
+## テト SV2（Synthesizer V Studio 2 Pro）
+
+~~~bash
+cusic export --format synthv --track Teto --bars 1:8 --out /absolute/path/teto.json
 cd /path/to/cusic/synthv
 npm install
 npm run build
-node dist/host/prepare.js /absolute/path/to/teto.json --out /absolute/path/to/cusic-teto.js
+node dist/host/prepare.js /absolute/path/teto.json --out /absolute/path/cusic-teto.js
 ~~~
 
-In SynthV choose **Scripts → Open Scripts Folder**, place `cusic-teto.js` there, rescan scripts, select the Teto track and run **cusic: Apply Vocal Notes**. It checks the current track name and range, then replaces only notes fully inside the range. Notes crossing boundaries cause an error. **Back up the SynthV project before running**: the replaced notes' tuning/retakes are not retained. Scripts execute inside SynthV on the user's action; this is not remote GUI control.
+JSの作成前にTypeScript+Zodで入力を検証し、SynthVスクリプトランタイムで動かす成果物は**ES5.1にコンパイルしたJS**。SynthVのスクリプトフォルダに配置し、エディタから選択した**同名トラックのmain group**に実行する。範囲外や境界を跨ぐノートは拒否する。対象範囲内の既存の調声は失われることがあるので、SynthVプロジェクトのバックアップを推奨する。
 
-This approach meets the TypeScript + Zod requirement while respecting SynthV 2's ES5.1 scripting runtime. The distributed script is an ES5.1 **build artifact**, not TypeScript or Node source.
-
-## Reliability, security and limitations
-
-- SQLite handles transactional updates. A revision is an application-level record, not a Git commit. `revert` only works on the latest revision.
-- Exports refuse to overwrite existing files; choose a new output path.
-- Existing Cubase or SynthV edits are **not automatically mirrored** into SQLite. Export and re-import via new MIDI tracks when needed; avoid overwriting source data.
-- No audio DSP, AI inference or Suno-to-MIDI transcription is bundled. Claude Code/Codex decide the musical notes, then call cusic.
-- MusicXML, native TuxGuitar, DAWproject, VSQX, full MIDI expressive events, advanced tempo maps and branching histories remain future adapters.
-- MIDI import's initial tempo/meter is included in its revision, so reverting an initial import also restores the project settings.
-- Backup a live SQLite project using SQLite's backup mechanism (not a blind copy of only the DB file during WAL writes). The `.cusic` directory is gitignored.
-
-## Development
+## 開発・制約
 
 ~~~bash
 go test -mod=mod ./...
 go vet -mod=mod ./...
-cd synthv && npm install && npm run build && npm test
+cd synthv
+npm install
+npm run build
+npm test
 ~~~
 
-See [AGENTS.md](AGENTS.md) for model-independent agent instructions and [CLAUDE.md](CLAUDE.md) for Claude Code.
+楽曲履歴はGitではなくSQLiteの`revisions`に保存し、`revert`はHEADだけ。WAL利用中のDBは単なるファイルコピーでなくSQLiteのバックアップ手段で保存する。
+
+主な未対応範囲：`.tg` 1.x、MusicXML、歌声合成の調声完全同期、リアルタイムCubase制御、DAWproject内の任意プラグイン・オートメーション、可変テンポ・変拍子、Suno専用APIとの直接認証連携。テキストでのAI編曲と演奏データ生成が中心のツール。
+
+Claude CodeとCodexは [AGENTS.md](AGENTS.md) を参照。Claude Codeはさらに [CLAUDE.md](CLAUDE.md) を読む。

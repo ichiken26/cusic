@@ -6,11 +6,16 @@ import (
  "flag"
  "fmt"
  "os"
+ "io/fs"
+ "os/exec"
  "path/filepath"
  "strconv"
  "strings"
 
  "github.com/ichiken26/cusic/internal/midifile"
+ "github.com/ichiken26/cusic/internal/dawproject"
+ "github.com/ichiken26/cusic/internal/tuxguitar"
+ "github.com/ichiken26/cusic/internal/vsqx"
  "github.com/ichiken26/cusic/internal/store"
 )
 
@@ -58,7 +63,10 @@ func run(args []string)error{
   id,err:=strconv.ParseInt(args[1],10,64);if err!=nil{return err}
   rev,err:=s.Revert(id);if err!=nil{return err}
   fmt.Printf("Reverted revision %d (new HEAD %d)\n",id,rev);return nil
- case "import":return importMIDI(s,args[1:])
+ case "import":return importSong(s,args[1:])
+ case "suno":return suno(s,args[1:])
+ case "audio":return audioCommand(s,args[1:])
+ case "sync":return syncCommand(s,args[1:])
  case "export":return export(s,args[1:])
  case "validate":
   var result string
@@ -81,6 +89,9 @@ func help()error{
  fmt.Print("  cusic log [-n 20]\n  cusic diff REV\n  cusic revert REV  (HEAD only)\n")
  fmt.Print("  cusic import song.mid\n  cusic export --format midi --out song.mid\n")
  fmt.Print("  cusic export --format synthv --track Teto --bars 1:8 --out teto.json\n")
+ fmt.Print("  cusic import demo.tg | demo.dawproject | demo.mid\n  cusic suno import ./stems\n  cusic suno separate --out ./stems song.wav\n  cusic suno transcribe --out ./midi stem.wav\n  cusic audio list\n")
+ fmt.Print("  cusic export --format vsqx --track Miku --template piapro.vsqx --out miku.vsqx\n  cusic export --format dawproject --out cubase.dawproject\n")
+ fmt.Print("  cusic sync plan --from cubase-export.dawproject\n  cusic sync pull --from cubase-export.dawproject --base-revision 12\n")
  fmt.Print("  cusic validate\n\nUse CUSIC_PROJECT=/path/to/song to target a different project.\n")
  return nil
 }
@@ -138,12 +149,105 @@ func patch(s *store.Store,args []string)error{
  if p.Notes==nil{return errors.New("patch.notes is required (use [] to delete notes)")}
  r,err:=s.ApplyPatch(p);if err!=nil{return err};fmt.Printf("Applied patch; HEAD %d\n",r);return nil
 }
-func importMIDI(s *store.Store,args []string)error{
- if len(args)<1{return errors.New("usage: cusic import song.mid")}
- song,err:=midifile.ReadFile(args[0]);if err!=nil{return err}
- r,err:=s.AddImported(song.Tracks,song.Tempo,song.MeterNum,song.MeterDen)
- if err!=nil{return err};fmt.Printf("Imported %d MIDI tracks; HEAD %d\n",len(song.Tracks),r)
- fmt.Fprintln(os.Stderr,"Note: MIDI controllers, tempo automation, program changes and expressive data are not imported.")
+func importSong(s *store.Store,args []string)error{
+ if len(args)<1{return errors.New("usage: cusic import song.mid|song.tg|session.dawproject")}
+ filename:=args[0];ext:=strings.ToLower(filepath.Ext(filename))
+ var song midifile.Song
+ var err error
+ var importedAudio []dawproject.ImportedAudio
+ switch ext {
+ case ".mid",".midi":song,err=midifile.ReadFile(filename)
+ case ".tg":song,err=tuxguitar.ReadFile(filename)
+ case ".dawproject":
+  var data dawproject.Imported;data,err=dawproject.ReadFile(filename)
+  song=data.Song;importedAudio=data.Audio
+ default:return fmt.Errorf("unsupported import format %q",ext)
+ }
+ if err!=nil{return err}
+ if len(song.Tracks)>0{
+  rev,err:=s.AddImported(song.Tracks,song.Tempo,song.MeterNum,song.MeterDen)
+  if err!=nil{return err}
+  fmt.Printf("Imported %d note tracks; HEAD %d\n",len(song.Tracks),rev)
+ }
+ // Embedded audio is extracted into a temporary file then hashed and copied
+ // to the local project. Never trust arbitrary ZIP paths.
+ for _,source:=range importedAudio{
+  directory,e:=os.MkdirTemp("","cusic-audio-*");if e!=nil{return e}
+  file:=filepath.Join(directory,"stem.wav")
+  e=dawproject.ExtractAudio(filename,source.ArchivePath,file)
+  if e==nil{_,_,e=s.AddAudioFile(file,source.Name)}
+  os.RemoveAll(directory)
+  if e!=nil{return e}
+ }
+ if len(song.Tracks)==0&&len(importedAudio)==0{return errors.New("no importable notes or WAV stems")}
+ fmt.Println("Note: non-note MIDI expression, original VST state and tablature technique are not preserved.")
+ return nil
+}
+func suno(s *store.Store,args []string)error{
+ if len(args)<1{return errors.New("usage: cusic suno import STEMS_DIR | separate --out DIR MIX.wav | transcribe --out DIR STEM.wav")}
+ switch args[0]{
+ case "import":
+  if len(args)<2{return errors.New("usage: cusic suno import STEMS_DIR")}
+  folder:=args[1]
+  found:=0
+  err:=filepath.WalkDir(folder,func(filename string,entry fs.DirEntry,visitErr error)error{
+   if visitErr!=nil{return visitErr}
+   if entry.IsDir()||strings.ToLower(filepath.Ext(entry.Name()))!=".wav"{return nil}
+   if found>=2048{return errors.New("too many WAV stems (max 2048)")}
+   rel,err:=filepath.Rel(folder,filename);if err!=nil{return err}
+   name:=strings.TrimSuffix(filepath.ToSlash(rel),filepath.Ext(rel))
+   a,rev,err:=s.AddAudioFile(filename,name);if err!=nil{return err}
+   fmt.Printf("Imported %s (%.2fs, %.0f Hz), HEAD %d\n",a.Name,a.Stats.Duration,float64(a.Stats.SampleRate),rev);found++
+   return nil
+  })
+  if err!=nil{return err}
+  if found==0{return errors.New("no WAV stems under folder; export WAVs from Suno Studio first")}
+  return nil
+ case "separate","transcribe":
+  f:=flag.NewFlagSet("suno "+args[0],flag.ContinueOnError)
+  out:=f.String("out","","new directory for generated stems/MIDI")
+  if err:=f.Parse(args[1:]);err!=nil{return err}
+  if *out==""||f.NArg()!=1{return fmt.Errorf("usage: cusic suno %s --out NEW_DIR source.wav",args[0])}
+  source:=f.Arg(0)
+  if _,err:=os.Stat(source);err!=nil{return err}
+  if _,err:=os.Stat(*out);err==nil{return errors.New("output directory exists: choose a new directory to avoid overwriting audio")}else if !errors.Is(err,os.ErrNotExist){return err}
+  if err:=os.MkdirAll(*out,0755);err!=nil{return err}
+  var tool string;var argv []string
+  if args[0]=="separate"{
+   tool="demucs";argv=[]string{"-o",*out,source}
+  }else{
+   tool="basic-pitch";argv=[]string{*out,source}
+  }
+  if _,err:=exec.LookPath(tool);err!=nil{return fmt.Errorf("%s is not installed in PATH; see README for optional audio dependencies",tool)}
+  cmd:=exec.Command(tool,argv...)
+  cmd.Stdout=os.Stdout;cmd.Stderr=os.Stderr
+  if err:=cmd.Run();err!=nil{return fmt.Errorf("%s failed: %w",tool,err)}
+  fmt.Printf("Generated %s files in %s; inspect results before importing\n",args[0],*out)
+  return nil
+ }
+ return errors.New("usage: cusic suno import|separate|transcribe")
+}
+func audioCommand(s *store.Store,args []string)error{
+ if len(args)!=1||args[0]!="list"{return errors.New("usage: cusic audio list")}
+ a,err:=s.Assets();if err!=nil{return err};return printJSON(a)
+}
+func syncCommand(s *store.Store,args []string)error{
+ if len(args)<1{return errors.New("usage: cusic sync plan|pull --from cubase.dawproject [--base-revision REV]")}
+ action:=args[0];if action!="plan"&&action!="pull"{return errors.New("sync supports plan or pull")}
+ f:=flag.NewFlagSet("sync "+action,flag.ContinueOnError)
+ filename:=f.String("from","","Cubase-exported .dawproject")
+ base:=f.Int64("base-revision",-1,"expected cusic HEAD; mandatory for pull")
+ if err:=f.Parse(args[1:]);err!=nil{return err}
+ if *filename==""{return errors.New("--from required")}
+ parsed,err:=dawproject.ReadFile(*filename);if err!=nil{return err}
+ cfg,err:=s.Settings();if err!=nil{return err}
+ if cfg.Tempo!=parsed.Song.Tempo||cfg.MeterNum!=parsed.Song.MeterNum||cfg.MeterDen!=parsed.Song.MeterDen{return errors.New("Cubase tempo/meter differs from cusic; refusing sync")}
+ plan,err:=s.PreviewSync(parsed.Song.Tracks);if err!=nil{return err}
+ if action=="plan"{return printJSON(plan)}
+ if *base<0{return errors.New("--base-revision required; run cusic sync plan first")}
+ rev,err:=s.SyncTracks(parsed.Song.Tracks,*base);if err!=nil{return err}
+ fmt.Printf("Pulled Cubase note edits; HEAD %d\n",rev)
+ fmt.Println("Audio tracks and VST settings are not modified by sync pull.")
  return nil
 }
 func writeFileAtomic(path string,b []byte)error{
@@ -157,7 +261,8 @@ func writeFileAtomic(path string,b []byte)error{
 }
 func export(s *store.Store,args []string)error{
  f:=flag.NewFlagSet("export",flag.ContinueOnError)
- format:=f.String("format","midi","midi or synthv");out:=f.String("out","","output file")
+ format:=f.String("format","midi","midi, synthv, vsqx or dawproject");out:=f.String("out","","output file")
+ template:=f.String("template","","Piapro V4X template VSQX")
  track:=f.String("track","","vocal track");bars:=f.String("bars","","inclusive bar range for synthv")
  if err:=f.Parse(args);err!=nil{return err}
  if *out==""{return errors.New("--out required")}
@@ -169,6 +274,28 @@ func export(s *store.Store,args []string)error{
   for _,t:=range ts{notes,e:=s.Notes(t.ID,0,0);if e!=nil{return e};ns[t.ID]=notes}
   b,e:=midifile.Write(settings,ts,ns);if e!=nil{return e}
   if err=writeFileAtomic(*out,b);err!=nil{return err}
+ case "dawproject":
+  tracks,err:=s.Tracks();if err!=nil{return err}
+  notes:=make(map[string][]store.Note)
+  for _,t:=range tracks{items,e:=s.Notes(t.ID,0,0);if e!=nil{return e};notes[t.ID]=items}
+  assets,err:=s.Assets();if err!=nil{return err}
+  audioFiles:=[]dawproject.AudioFile{}
+  for _,a:=range assets{
+   abs,e:=s.AssetAbsolute(a);if e!=nil{return e}
+   audioFiles=append(audioFiles,dawproject.AudioFile{Name:a.Name,AbsolutePath:abs,SampleRate:a.Stats.SampleRate,Channels:a.Stats.Channels,Duration:a.Stats.Duration})
+  }
+  if err=dawproject.WriteFile(*out,settings,tracks,notes,audioFiles);err!=nil{return err}
+ case "vsqx":
+  if *track==""||*template==""{return errors.New("vsqx requires --track and --template from Piapro Studio V4X")}
+  t,err:=s.Track(*track);if err!=nil{return err}
+  if t.Kind!="vocal"{return errors.New("vsqx requires a vocal track")}
+  from,to,err:=noteRange(settings,*bars);if err!=nil{return err}
+  notes,err:=s.Notes(t.ID,from,to);if err!=nil{return err}
+  if from!=0{for _,n:=range notes{if n.Tick<from||n.Tick+n.Duration>to{return errors.New("VSQX note crosses selection boundary")}}}
+  b,err:=os.ReadFile(*template);if err!=nil{return err}
+  encoded,err:=vsqx.Export(b,settings,t,notes);if err!=nil{return err}
+  if err=writeFileAtomic(*out,encoded);err!=nil{return err}
+  fmt.Fprintln(os.Stderr,"Note: review Japanese phonemes and vocal tuning inside Piapro Studio.")
  case "synthv":
   if *track==""{return errors.New("--track required for synthv")}
   t,err:=s.Track(*track);if err!=nil{return err}
