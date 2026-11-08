@@ -85,6 +85,7 @@ func run(args []string)error{
 }
 func help()error{
  fmt.Print("cusic — local-first music agent CLI\n\n")
+ fmt.Print("  cusic setup [PROJECT_DIR]  # One-time Claude/Codex MCP setup\n  cusic mcp                  # stdio MCP server\n")
  fmt.Print("  cusic init --name Demo --tempo 168 [DIR]\n")
  fmt.Print("  cusic status\n  cusic track add --name Bass [--kind instrument|drums|vocal] [--singer teto_sv2]\n")
  fmt.Print("  cusic track list\n  cusic note add --track Bass --tick 0 --duration 480 --pitch 40 --velocity 100\n")

@@ -35,8 +35,18 @@ func setup(args []string)error{
    if len(parsed.Song.Tracks)>0{
     _,e=s.AddImported(parsed.Song.Tracks,parsed.Song.Tempo,parsed.Song.MeterNum,parsed.Song.MeterDen)
    }
+   if e==nil{
+    for _,a:=range parsed.Audio{
+     tmp,tmpErr:=os.MkdirTemp("","cusic-setup-audio-*");if tmpErr!=nil{e=tmpErr;break}
+     extracted:=filepath.Join(tmp,"stem.wav")
+     tmpErr=dawproject.ExtractAudio(filename,a.ArchivePath,extracted)
+     if tmpErr==nil{_,_,tmpErr=s.AddAudioFile(extracted,a.Name)}
+     os.RemoveAll(tmp)
+     if tmpErr!=nil{e=tmpErr;break}
+    }
+   }
    s.Close();if e!=nil{return e}
-   fmt.Println("Initialized from "+candidates[0]+" (note tracks imported; run project_import via MCP to register embedded WAV)")
+   fmt.Println("Initialized from "+candidates[0]+" (note tracks and embedded WAV imported)")
   }else{
    fmt.Fprintln(os.Stderr,"No unique DAWproject found. MCP will ask for a one-time Cubase DAWproject export and tempo/meter before initializing the score.")
   }
