@@ -40,6 +40,7 @@ jobs:
           name: cusic-synthv-scripts
           path: |
             synthv/dist/cusic-synthv.js
+            synthv/dist/cusic-synthv-safe.js
             synthv/dist/host/
   binaries:
     needs: go

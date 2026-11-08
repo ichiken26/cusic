@@ -1,6 +1,8 @@
 // Minimal typings for the subset of the official SV2 scripting API used by cusic.
 // This file is a compile-time declaration, not bundled into the runtime script.
 interface SvNote {
+  getPitch(): number;
+  getLyrics(): string;
   getOnset(): number;
   getEnd(): number;
   setTimeRange(onset: number, duration: number): void;

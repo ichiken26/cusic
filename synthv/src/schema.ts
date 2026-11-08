@@ -36,3 +36,27 @@ export const payloadSchema = z.object({
   }
 });
 export type Payload = z.infer<typeof payloadSchema>;
+
+
+// Safe updates for an existing SV2 project. No note deletion/creation,
+// no timeline modifications and no resetting retakes/automation.
+export const safeEditSchema = z.object({
+  version: z.literal(1),
+  trackName: z.string().min(1),
+  ppq: z.literal(480),
+  changes: z.array(z.object({
+    tick: z.number().int().nonnegative().safe(),
+    expectedPitch: z.number().int().min(0).max(127),
+    newPitch: z.number().int().min(0).max(127).optional(),
+    newLyric: z.string().min(1).max(4096).optional()
+  }).strict().refine(x => x.newPitch !== undefined || x.newLyric !== undefined,
+    "newPitch or newLyric required")).min(1).max(10000)
+}).strict().superRefine((p, ctx) => {
+  const ticks = new Set<number>();
+  for (const [i, c] of p.changes.entries()) {
+    if (ticks.has(c.tick)) {
+      ctx.addIssue({code:"custom",path:["changes",i,"tick"],message:"duplicate onset"});
+    }
+    ticks.add(c.tick);
+  }
+});

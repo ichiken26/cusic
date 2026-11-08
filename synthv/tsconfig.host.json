@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/schema.ts", "src/prepare.ts"]
+  "include": ["src/schema.ts", "src/prepare.ts", "src/prepare-safe.ts"]
 }

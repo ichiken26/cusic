@@ -152,3 +152,48 @@ func Export(template []byte,settings store.Settings,track store.Track,notes []st
  if err:=root.encode(encoder);err!=nil{return nil,err};if err:=encoder.Flush();err!=nil{return nil,err}
  return out.Bytes(),nil
 }
+
+
+// NoteEdit makes a narrowly scoped, non-destructive edit to a note already
+// present in a VOCALOID4 VSQX. Onset and duration remain unchanged, so all
+// original mCtrl events and note style curves remain at their original times.
+type NoteEdit struct{
+ Tick int64 `json:"tick"`
+ ExpectedPitch int `json:"expectedPitch"`
+ NewPitch *int `json:"newPitch,omitempty"`
+ NewLyric *string `json:"newLyric,omitempty"`
+}
+func EditExisting(source []byte, edits []NoteEdit)([]byte,error){
+ if len(edits)==0{return nil,errors.New("at least one edit required")}
+ root,err:=parse(source);if err!=nil{return nil,err}
+ if root.Name.Local!="vsq4"||root.Name.Space!="http://www.yamaha.co.jp/vocaloid/schema/vsq4/"{return nil,errors.New("VOCALOID4 VSQX required")}
+ tracks:=root.all("vsTrack");if len(tracks)!=1{return nil,errors.New("expected exactly one vocal track")}
+ parts:=tracks[0].all("vsPart");if len(parts)!=1{return nil,errors.New("expected exactly one part")}
+ part:=parts[0]
+ targets:=map[int64]*elem{}
+ for _,n:=range part.all("note"){
+  tick,e:=strconv.ParseInt(n.text("t"),10,64);if e!=nil{return nil,fmt.Errorf("invalid note tick: %w",e)}
+  if _,exists:=targets[tick];exists{return nil,fmt.Errorf("multiple notes at tick %d; ambiguous",tick)}
+  targets[tick]=n
+ }
+ seen:=map[int64]bool{}
+ // Validate everything *before* making any edit.
+ for _,edit:=range edits{
+  if seen[edit.Tick]{return nil,fmt.Errorf("duplicate edit at tick %d",edit.Tick)}
+  seen[edit.Tick]=true
+  n,ok:=targets[edit.Tick];if !ok{return nil,fmt.Errorf("no existing note at tick %d",edit.Tick)}
+  p,e:=strconv.Atoi(n.text("n"));if e!=nil||p!=edit.ExpectedPitch{return nil,fmt.Errorf("pitch mismatch at tick %d: expected %d, VSQX has %d",edit.Tick,edit.ExpectedPitch,p)}
+  if edit.NewPitch==nil&&edit.NewLyric==nil{return nil,errors.New("every edit must change pitch or lyric")}
+  if edit.NewPitch!=nil&&(*edit.NewPitch<0||*edit.NewPitch>127){return nil,fmt.Errorf("pitch out of range at tick %d",edit.Tick)}
+  if edit.NewLyric!=nil{if _,ok:=shortPhoneme(*edit.NewLyric);!ok{return nil,fmt.Errorf("unsupported lyric %q",*edit.NewLyric)}}
+ }
+ for _,edit:=range edits{
+  n:=targets[edit.Tick]
+  if edit.NewPitch!=nil{n.set("n",strconv.Itoa(*edit.NewPitch))}
+  if edit.NewLyric!=nil{p,_:=shortPhoneme(*edit.NewLyric);n.set("y",*edit.NewLyric);n.set("p",p)}
+ }
+ out:=&bytes.Buffer{};out.WriteString(xml.Header)
+ encoder:=xml.NewEncoder(out);if err:=root.encode(encoder);err!=nil{return nil,err}
+ if err:=encoder.Flush();err!=nil{return nil,err}
+ return out.Bytes(),nil
+}

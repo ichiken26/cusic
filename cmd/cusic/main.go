@@ -12,6 +12,7 @@ import (
  "strconv"
  "strings"
 
+ "github.com/ichiken26/cusic/internal/agent"
  "github.com/ichiken26/cusic/internal/midifile"
  "github.com/ichiken26/cusic/internal/dawproject"
  "github.com/ichiken26/cusic/internal/tuxguitar"
@@ -26,6 +27,8 @@ func run(args []string)error{
  if len(args)==0{return help()}
  switch args[0]{
  case "help","--help","-h":return help()
+ case "mcp":return agent.Run()
+ case "setup":return setup(args[1:])
  case "init":
   f:=flag.NewFlagSet("init",flag.ContinueOnError)
   name:=f.String("name","Untitled","project name");tempo:=f.Int("tempo",120,"BPM");meter:=f.String("meter","4/4","time signature")
@@ -82,6 +85,7 @@ func run(args []string)error{
 }
 func help()error{
  fmt.Print("cusic — local-first music agent CLI\n\n")
+ fmt.Print("  cusic setup [PROJECT_DIR]  # One-time Claude/Codex MCP setup\n  cusic mcp                  # stdio MCP server\n")
  fmt.Print("  cusic init --name Demo --tempo 168 [DIR]\n")
  fmt.Print("  cusic status\n  cusic track add --name Bass [--kind instrument|drums|vocal] [--singer teto_sv2]\n")
  fmt.Print("  cusic track list\n  cusic note add --track Bass --tick 0 --duration 480 --pitch 40 --velocity 100\n")
@@ -147,6 +151,8 @@ func patch(s *store.Store,args []string)error{
  dec:=json.NewDecoder(strings.NewReader(string(b)));dec.DisallowUnknownFields()
  if err=dec.Decode(&p);err!=nil{return err}
  if p.Notes==nil{return errors.New("patch.notes is required (use [] to delete notes)")}
+ t,err:=s.Track(p.Track);if err!=nil{return err}
+ if t.Kind=="vocal"{return errors.New("refusing destructive vocal patch: use non-destructive VSQX/SynthV editing or generate a NEW vocal part")}
  r,err:=s.ApplyPatch(p);if err!=nil{return err};fmt.Printf("Applied patch; HEAD %d\n",r);return nil
 }
 func importSong(s *store.Store,args []string)error{

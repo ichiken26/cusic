@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.bridge.json && tsc -p tsconfig.host.json",
+    "build": "tsc -p tsconfig.bridge.json && tsc -p tsconfig.bridge-safe.json && tsc -p tsconfig.host.json",
     "prepare:script": "node dist/host/prepare.js",
     "test": "node --test test/*.test.mjs"
   },

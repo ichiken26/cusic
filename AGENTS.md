@@ -15,3 +15,10 @@ Do not write the SQLite project database directly; use cusic commands.
 10. SQLite holds revisions, not Git. Back up the DB with SQLite-safe backup tools, including WAL data.
 
 Example musical patch: `examples/patch.json`.
+
+## Agent-first workflow
+
+Read `docs/agent-first.md` for project-scoped MCP setup and safe vocal/mix workflows. Use the MCP tools from `cusic mcp` rather than expecting users to know the CLI.
+For an existing mixed song, use the **original Cubase-exported DAWproject** as the source of `mix_plan` / `mix_apply`, not a new cusic-generated session (audio region offsets may otherwise be lost).
+Always ask approval before `mix_apply`; it creates a NEW .dawproject file. Never overwrite .cpr, source recordings, .svp, .vsqx or .ppsf.
+Backup vocal source with `vocal_backup_source`. Use `vocal_vsqx_edit_existing` for safe existing VSQX note edits, or the TypeScript/Zod `synthv/src/safe.ts` script for existing SynthV notes; NEVER use destructive note replacement on tuned vocals.

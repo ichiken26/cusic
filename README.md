@@ -5,6 +5,37 @@
 
 > **開発中 / experimental**：ソースコードの変換・MIDI往復テストはCIで検証するが、Cubase / Piapro Studio V4X / Synthesizer V 2 Proの**実機による受け入れテストは未実施**。実制作前にテストプロジェクトとバックアップで確認してね。各ファイル形式の全機能を保持する変換ではない。
 
+## Claude Code / Codex：曲フォルダで自然文だけで操作（NEW）
+
+**初回に一度だけ `cusic setup`。以降はClaude Code / Codexで曲フォルダを開いて自由文で指示できる。**
+
+1. Cubaseで既存の `.cpr` を開き、DAWprojectを**1本**書き出して曲フォルダに置く（初回と変更後の再同期時に必要）。
+2. Windows / macOS / Linux版のcusicバイナリを使い、曲フォルダで `cusic setup` を実行する。
+3. `.mcp.json`（Claude）と `.codex/config.toml`（Codex）、エージェント向け説明が自動生成される。1本だけDAWprojectがある場合はSQLite初期化とMIDI/WAV取り込みも実行される。
+4. Claude Code / Codexを**曲フォルダ**で開き、ローカルMCPの利用を許可して、例えば「ギター2本・ベース・ドラム・ミク・テトの音の重なりを解析して、ミクとテトが埋もれないミックス案を作って。元のデータは絶対に変更しないで」と指示する。
+
+```sh
+cusic setup "D:\Music\MySong"
+```
+
+cusic MCPには `project_inventory`、`project_status`、`track_inspect`、`project_import`、`audio_import`、`mix_analyze_stems`、`mix_plan`、`mix_apply`、`vocal_backup_source`、`vocal_vsqx_edit_existing`、`patch_apply`、`cubase_sync_plan` などを公開。ユーザーがCLIのコマンド体系を覚える必要はない。
+
+### Cubase自動化の現状
+
+**完全無人のCubase操作ではない。** `.cpr`を直接解析したり、開いているCubaseの録音トラックを自動書き出ししたり、ミキサーをライブ制御したりはできない。Cubaseから**DAWprojectを1本書き出す**操作、変更済みDAWprojectを取り込む操作は手動。単なる個別のWAV＋MIDI一括書き出しよりも、DAWprojectが構成情報を残せるため基本経路としている。
+
+**既存曲のミックスでは、Cubaseから書き出した元のDAWprojectを `mix_apply` のソースとして使用。** cusicのSQLiteから再生成したDAWprojectでは、録音の任意のクリップ配置やワープを完全復元できない。`mix_analyze_stems` はWAVのピーク/RMS/粗い帯域エネルギーを測定、`mix_plan` でEQ・パン・フェーダーの案を事前確認し、承認後の `mix_apply` が**別名のDAWproject**を生成する。オリジナルDAWproject内の録音・プラグインバイナリはコピーするが、Cubase実機での汎用EQの読み込み互換性は未検証。
+
+### ミクV4X・テトSV2の既存調声を守る
+
+- `vocal_backup_source` で元の `.vsqx` / `.svp` / `.ppsf` を**SHA-256付きでバイト単位バックアップ**。これは元のピッチ・表情・リテイクを丸ごと復元できる。
+- ミク：`vocal_vsqx_edit_existing` で**既存音符の音高・歌詞だけ**新しいVSQXに変更。元の`mCtrl`や`nStyle`、タイミング、音源識別子を保持。
+- テト：`synthv/src/safe.ts` からビルドしたES5.1のJSで、**既存ノートを削除せず**音高・歌詞だけ変更。TypeScript＋Zod検証はホストで実行、SV2上では生成JSを実行して**別名SVPとして保存**。実機での挙動は未確認。
+- 既存の音符の長さやタイミングを変えた場合にカーブやリテイクを安全移設する機能は未実装。歌唱調声全体をcusicのSQLiteに完全同期しているわけではない。旧`prepare.js`の完全置換は**新規フレーズ専用**。
+
+詳しい利用手順・制約は [docs/agent-first.md](docs/agent-first.md) を参照。
+
+---
 ## できること
 
 | 入出力 | コマンド | 対応範囲 |
