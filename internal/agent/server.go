@@ -17,6 +17,7 @@ import (
  "github.com/ichiken26/cusic/internal/audio"
  "github.com/ichiken26/cusic/internal/dawproject"
  "github.com/ichiken26/cusic/internal/midifile"
+ "github.com/ichiken26/cusic/internal/mix"
  "github.com/ichiken26/cusic/internal/store"
  "github.com/ichiken26/cusic/internal/tuxguitar"
  "github.com/ichiken26/cusic/internal/vsqx"
@@ -80,6 +81,7 @@ type exportInput struct{
  Template string `json:"template"`
 }
 type syncInput struct{ From string `json:"from"`; BaseRevision int64 `json:"baseRevision"`; Confirm bool `json:"confirm"` }
+type mixInput struct{ Source string `json:"source"`; Out string `json:"out"`; Tracks []mix.Track `json:"tracks"`; Confirm bool `json:"confirm"` }
 func NewServer()*mcp.Server{
  server:=mcp.NewServer(&mcp.Implementation{Name:"cusic",Version:"0.3.0"},nil)
  mcp.AddTool(server,&mcp.Tool{Name:"project_inventory",Description:"Discover Cubase .cpr, DAWproject, MIDI, WAV, VSQX and SVP files in this directory. No modifications."},func(ctx context.Context,req *mcp.CallToolRequest,in empty)(*mcp.CallToolResult,response,error){
@@ -228,6 +230,20 @@ func NewServer()*mcp.Server{
   })
  })
 
+
+ mcp.AddTool(server,&mcp.Tool{Name:"mix_plan",Description:"Validate a proposed EQ/fader/pan mix for an existing Cubase-exported DAWproject; returns exact track changes without touching project files. Use after mix_analyze_stems."},func(ctx context.Context,req *mcp.CallToolRequest,in mixInput)(*mcp.CallToolResult,response,error){
+  if in.Source==""{return nil,response{},errors.New("source DAWproject required")}
+  p:=mix.Plan{Tracks:in.Tracks}
+  if err:=mix.Check(pathFromProject(in.Source),p);err!=nil{return nil,response{},err}
+  return output(map[string]any{"valid":true,"trackChanges":p.Tracks,"notice":"EQ is appended as a generic DAWproject equalizer. This is a NEW copied project, never automatic editing of open Cubase.","next":"Review with the user, then call mix_apply with confirm=true"})
+ })
+ mcp.AddTool(server,&mcp.Tool{Name:"mix_apply",Description:"After approval, create a NEW DAWproject with changed channel fader/pan and added generic EQ bands. Existing VST state/WAV media in the archive are copied unchanged. Requires confirm=true."},func(ctx context.Context,req *mcp.CallToolRequest,in mixInput)(*mcp.CallToolResult,response,error){
+  if !in.Confirm{return nil,response{},errors.New("explicit confirm=true required after mix_plan")}
+  out,err:=outputPath(in.Out);if err!=nil{return nil,response{},err}
+  source:=pathFromProject(in.Source)
+  if err=mix.Apply(source,out,mix.Plan{Tracks:in.Tracks});err!=nil{return nil,response{},err}
+  return output(map[string]any{"file":out,"changedTracks":len(in.Tracks),"notice":"Import the NEW DAWproject into a new/backup Cubase project, listen and verify plugin mapping."})
+ })
  mcp.AddTool(server,&mcp.Tool{Name:"vocal_backup_source",Description:"Make byte-identical SHA256-verified backup of an existing .svp/.vsqx/.ppsf (including ALL tuning, retakes, expression and project metadata). Never alters the original; call before proposing vocal edits."},func(ctx context.Context,req *mcp.CallToolRequest,in vocalSourceInput)(*mcp.CallToolResult,response,error){
   src:=pathFromProject(in.Source)
   ext:=strings.ToLower(filepath.Ext(src))

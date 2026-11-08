@@ -191,3 +191,19 @@ func Apply(source,destination string,plan Plan)error{
  if err=tmp.Close();err!=nil{return err}
  return os.Rename(tmp.Name(),destination)
 }
+
+
+// Check validates both the requested mix and referenced DAWproject track names
+// without changing or exporting anything.
+func Check(source string,plan Plan)error{
+ if err:=Validate(plan);err!=nil{return err}
+ r,err:=zip.OpenReader(source);if err!=nil{return err};defer r.Close()
+ for _,f:=range r.File{if f.Name=="project.xml"{
+  if f.UncompressedSize64>64<<20{return errors.New("project.xml exceeds size limit")}
+  rc,err:=f.Open();if err!=nil{return err}
+  data,err:=io.ReadAll(io.LimitReader(rc,64<<20+1));rc.Close();if err!=nil{return err}
+  root,err:=parse(data);if err!=nil{return err}
+  return modify(root,plan)
+ }}
+ return errors.New("DAWproject has no project.xml")
+}
