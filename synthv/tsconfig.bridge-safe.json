@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES5",
+    "module": "None",
+    "lib": [
+      "ES5"
+    ],
+    "outFile": "dist/cusic-synthv-safe.js",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "files": [
+    "src/sv-api.d.ts",
+    "src/safe.ts"
+  ]
+}
