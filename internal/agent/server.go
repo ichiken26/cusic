@@ -149,7 +149,19 @@ func NewServer()*mcp.Server{
  mcp.AddTool(server,&mcp.Tool{Name:"audio_list",Description:"List registered WAV stems with peak, RMS, channel count, sample rate and duration."},func(ctx context.Context,req *mcp.CallToolRequest,in empty)(*mcp.CallToolResult,response,error){
   return withStore(func(s *store.Store)(any,error){return s.Assets()})
  })
- mcp.AddTool(server,&mcp.Tool{Name:"patch_apply",Description:"REPLACES every note in a bounded track/bar interval. Always inspect notes and current HEAD first. Requires baseRevision to match HEAD. Never automatically edit vocal tracks containing existing tuning."},func(ctx context.Context,req *mcp.CallToolRequest,in patchInput)(*mcp.CallToolResult,response,error){
+ mcp.AddTool(server,&mcp.Tool{Name:"mix_analyze_stems",Description:"Compute measured WAV peak, RMS and approximate broad-band energy for each registered stem. Use this to suggest EQ, compression and gain; it does NOT control Cubase plug-ins or automatically change the mix."},func(ctx context.Context,req *mcp.CallToolRequest,in empty)(*mcp.CallToolResult,response,error){
+  return withStore(func(s *store.Store)(any,error){
+   assets,err:=s.Assets();if err!=nil{return nil,err}
+   results:=[]map[string]any{}
+   for _,a:=range assets{
+    file,e:=s.AssetAbsolute(a);if e!=nil{return nil,e}
+    stats,e:=audio.Inspect(file);if e!=nil{return nil,e}
+    results=append(results,map[string]any{"name":a.Name,"stats":stats})
+   }
+   return map[string]any{"stems":results,"note":"Approximate broad-band RMS, not perceptual masking or LUFS. Choose EQ by listening, do not auto-write VST state."},nil
+  })
+ })
+ mcp.AddTool(server,&mcp.Tool{Name:"patch_apply" ,Description:"REPLACES every note in a bounded track/bar interval. Always inspect notes and current HEAD first. Requires baseRevision to match HEAD. Never automatically edit vocal tracks containing existing tuning."},func(ctx context.Context,req *mcp.CallToolRequest,in patchInput)(*mcp.CallToolResult,response,error){
   return withStore(func(s *store.Store)(any,error){
    track,err:=s.Track(in.Track);if err!=nil{return nil,err}
    if track.Kind=="vocal"{return nil,errors.New("refusing destructive vocal patch: preserve tuned vocal source and use an additive harmony or non-destructive note operation")}

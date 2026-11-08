@@ -21,6 +21,7 @@ type Stats struct{
  Peak float64 `json:"peak"`
  RMS float64 `json:"rms"`
  SHA256 string `json:"sha256"`
+ BandRMS map[string]float64 `json:"bandRms,omitempty"`
 }
 func Inspect(path string)(Stats,error){
  result:=Stats{}
@@ -62,6 +63,13 @@ func Inspect(path string)(Stats,error){
  if _,err=f.Seek(dataOffset,io.SeekStart);err!=nil{return result,err}
  block:=make([]byte,step*result.Channels*4096)
  remaining:=dataSize;sumSquares:=float64(0);total:=int64(0)
+ // A simple streaming bank of one-pole low-pass crossovers estimates broad
+ // spectrum energy. It is an approximation, NOT a mastering-grade EQ meter.
+ boundaries:=[]float64{60,120,250,500,2000,6000,16000}
+ alpha:=make([]float64,len(boundaries));lp:=make([]float64,len(boundaries))
+ for i,freq:=range boundaries{alpha[i]=1-math.Exp(-2*math.Pi*freq/float64(result.SampleRate))}
+ bands:=make([]float64,len(boundaries)+1);frames:=int64(0)
+ mono:=float64(0);channelIndex:=0
  for remaining>0{
   size:=int64(len(block));if remaining<size{size=remaining}
   if _,err=io.ReadFull(f,block[:int(size)]);err!=nil{return result,err}
@@ -80,10 +88,26 @@ func Inspect(path string)(Stats,error){
    if math.IsNaN(sample)||math.IsInf(sample,0){return result,errors.New("non-finite WAV sample")}
    if math.Abs(sample)>result.Peak{result.Peak=math.Abs(sample)}
    sumSquares+=sample*sample;total++
+   mono+=sample;channelIndex++
+   if channelIndex==result.Channels{
+    mono/=float64(result.Channels)
+    prev:=float64(0)
+    for k:=range lp{
+     lp[k]+=alpha[k]*(mono-lp[k])
+     v:=lp[k]-prev;bands[k]+=v*v;prev=lp[k]
+    }
+    v:=mono-prev;bands[len(bands)-1]+=v*v
+    frames++;mono=0;channelIndex=0
+   }
   }
   remaining-=size
  }
  if total>0{result.RMS=math.Sqrt(sumSquares/float64(total))}
+ if frames>0{
+  keys:=[]string{"sub_0_60_hz","bass_60_120_hz","bass_120_250_hz","lowmid_250_500_hz","mid_500_2000_hz","presence_2000_6000_hz","high_6000_16000_hz","air_above_16000_hz"}
+  result.BandRMS=map[string]float64{}
+  for i,k:=range keys{result.BandRMS[k]=math.Sqrt(bands[i]/float64(frames))}
+ }
  if _,err=f.Seek(0,io.SeekStart);err!=nil{return result,err}
  h:=sha256.New();if _,err=io.Copy(h,f);err!=nil{return result,err}
  result.SHA256=hex.EncodeToString(h.Sum(nil))
