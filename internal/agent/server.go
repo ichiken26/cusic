@@ -67,6 +67,7 @@ type patchInput struct{
  Notes []store.InputNote `json:"notes"`
 }
 type revisionInput struct{ Revision int64 `json:"revision"` }
+type vsqxEditsInput struct{ Source string `json:"source"`; Out string `json:"out"`; Changes []vsqx.NoteEdit `json:"changes"` }
 type audioInput struct{ File string `json:"file"`; Name string `json:"name"` }
 type exportInput struct{
  Format string `json:"format"`
@@ -210,7 +211,15 @@ func NewServer()*mcp.Server{
    r,e:=s.SyncTracks(data.Song.Tracks,in.BaseRevision);return map[string]any{"revision":r},e
   })
  })
- mcp.AddTool(server,&mcp.Tool{Name:"vocal_source_status",Description:"Discover original VSQX/SVP files (not flattened to MIDI). Existing pitch curves/expression are preserved by leaving their source files untouched."},func(ctx context.Context,req *mcp.CallToolRequest,in empty)(*mcp.CallToolResult,response,error){
+ mcp.AddTool(server,&mcp.Tool{Name:"vocal_vsqx_edit_existing",Description:"Non-destructive edit of existing Miku V4X note pitch/lyrics in a new VSQX: preserves original mCtrl pitch bends, expression controllers, notes, voicebank, nStyle and note timing. Fails if original pitches changed. NEVER overwrites source."},func(ctx context.Context,req *mcp.CallToolRequest,in vsqxEditsInput)(*mcp.CallToolResult,response,error){
+  from:=pathFromProject(in.Source);dst,err:=outputPath(in.Out);if err!=nil{return nil,response{},err}
+  b,err:=os.ReadFile(from);if err!=nil{return nil,response{},err}
+  out,err:=vsqx.EditExisting(b,in.Changes);if err!=nil{return nil,response{},err}
+  if err=os.MkdirAll(filepath.Dir(dst),0755);err!=nil{return nil,response{},err}
+  if err=os.WriteFile(dst,out,0644);err!=nil{return nil,response{},err}
+  return output(map[string]any{"source":from,"output":dst,"edits":len(in.Changes),"preservation":"existing note style and mCtrl automation retained; timeline untouched"})
+ })
+ mcp.AddTool(server,&mcp.Tool{Name:"vocal_source_status" ,Description:"Discover original VSQX/SVP files (not flattened to MIDI). Existing pitch curves/expression are preserved by leaving their source files untouched."},func(ctx context.Context,req *mcp.CallToolRequest,in empty)(*mcp.CallToolResult,response,error){
   files:=[]string{}
   root:=projectDir()
   err:=filepath.WalkDir(root,func(p string,e os.DirEntry,err error)error{
