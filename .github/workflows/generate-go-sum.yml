@@ -1,0 +1,33 @@
+name: Generate go.sum
+on:
+  push:
+    branches: [fix/commit-go-sum]
+permissions:
+  contents: write
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: false
+      - name: Generate verified module sums
+        run: |
+          go mod tidy
+          go mod download
+          go test ./...
+      - name: Commit go.mod and go.sum
+        run: |
+          git add go.mod go.sum
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "fix(go): commit generated dependency checksums"
+            git push origin HEAD:fix/commit-go-sum
+          else
+            echo "go.mod and go.sum already up to date"
+          fi
