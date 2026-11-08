@@ -100,17 +100,11 @@ The user gives free-form instructions and does NOT need to learn cusic commands.
  if _,e:=os.Stat(guide);errors.Is(e,os.ErrNotExist){if e=os.WriteFile(guide,[]byte(workflow),0644);e!=nil{return e}}
  agents:=filepath.Join(absolute,"AGENTS.md")
  if _,e:=os.Stat(agents);errors.Is(e,os.ErrNotExist){
-  _=os.WriteFile(agents,[]byte("# Agent instructions
-
-Read CUSIC_WORKFLOW.md before making changes to this music project.
-"),0644)
+  _=os.WriteFile(agents,[]byte("# Agent instructions\n\nRead CUSIC_WORKFLOW.md before making changes to this music project.\n"),0644)
  }else{fmt.Fprintln(os.Stderr,"AGENTS.md exists: add a reference to CUSIC_WORKFLOW.md for full agent instructions")}
  claude:=filepath.Join(absolute,"CLAUDE.md")
  if _,e:=os.Stat(claude);errors.Is(e,os.ErrNotExist){
-  _=os.WriteFile(claude,[]byte("# Claude Code instructions
-
-Read CUSIC_WORKFLOW.md and use the cusic MCP tools.
-"),0644)
+  _=os.WriteFile(claude,[]byte("# Claude Code instructions\n\nRead CUSIC_WORKFLOW.md and use the cusic MCP tools.\n"),0644)
  }else{fmt.Fprintln(os.Stderr,"CLAUDE.md exists: add a reference to CUSIC_WORKFLOW.md for full agent instructions")}
  fmt.Println("cusic setup complete in "+absolute)
  fmt.Println("Open this folder in Claude Code or Codex and ask in plain language. Trust/enable the local MCP server when prompted.")
