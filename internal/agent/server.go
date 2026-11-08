@@ -4,6 +4,9 @@ package agent
 
 import (
  "context"
+ "crypto/sha256"
+ "encoding/hex"
+ "io"
  "encoding/json"
  "errors"
  "fmt"
@@ -69,6 +72,7 @@ type patchInput struct{
 type revisionInput struct{ Revision int64 `json:"revision"` }
 type vsqxEditsInput struct{ Source string `json:"source"`; Out string `json:"out"`; Changes []vsqx.NoteEdit `json:"changes"` }
 type audioInput struct{ File string `json:"file"`; Name string `json:"name"` }
+type vocalSourceInput struct{ Source string `json:"source"` }
 type exportInput struct{
  Format string `json:"format"`
  Out string `json:"out"`
@@ -222,6 +226,31 @@ func NewServer()*mcp.Server{
    if cfg.Tempo!=data.Song.Tempo||cfg.MeterNum!=data.Song.MeterNum||cfg.MeterDen!=data.Song.MeterDen{return nil,errors.New("tempo/meter mismatch")}
    r,e:=s.SyncTracks(data.Song.Tracks,in.BaseRevision);return map[string]any{"revision":r},e
   })
+ })
+
+ mcp.AddTool(server,&mcp.Tool{Name:"vocal_backup_source",Description:"Make byte-identical SHA256-verified backup of an existing .svp/.vsqx/.ppsf (including ALL tuning, retakes, expression and project metadata). Never alters the original; call before proposing vocal edits."},func(ctx context.Context,req *mcp.CallToolRequest,in vocalSourceInput)(*mcp.CallToolResult,response,error){
+  src:=pathFromProject(in.Source)
+  ext:=strings.ToLower(filepath.Ext(src))
+  if ext!=".svp"&&ext!=".vsqx"&&ext!=".ppsf"{return nil,response{},errors.New("supported vocal source formats: .svp, .vsqx, .ppsf")}
+  f,err:=os.Open(src);if err!=nil{return nil,response{},err}
+  defer f.Close()
+  stat,err:=f.Stat();if err!=nil{return nil,response{},err}
+  if !stat.Mode().IsRegular()||stat.Size()>1<<30{return nil,response{},errors.New("vocal source must be a regular file <= 1GiB")}
+  root,err:=filepath.Abs(projectDir());if err!=nil{return nil,response{},err}
+  folder:=filepath.Join(root,".cusic","vocal-backups")
+  if err=os.MkdirAll(folder,0700);err!=nil{return nil,response{},err}
+  tmp,err:=os.CreateTemp(folder,".cusic-vocal-*");if err!=nil{return nil,response{},err}
+  defer os.Remove(tmp.Name())
+  hash:=sha256.New()
+  if _,err=io.Copy(io.MultiWriter(tmp,hash),f);err!=nil{tmp.Close();return nil,response{},err}
+  if err=tmp.Close();err!=nil{return nil,response{},err}
+  sum:=hex.EncodeToString(hash.Sum(nil))
+  dst:=filepath.Join(folder,sum+ext)
+  if _,err=os.Stat(dst);errors.Is(err,os.ErrNotExist){
+   if err=os.Rename(tmp.Name(),dst);err!=nil{return nil,response{},err}
+   if err=os.Chmod(dst,0444);err!=nil{return nil,response{},err}
+  }else if err!=nil{return nil,response{},err}
+  return output(map[string]any{"source":src,"backup":dst,"sha256":sum,"bytes":stat.Size(),"notice":"Source remains unchanged. Backup retains original full tuning and expression, unlike MIDI."})
  })
  mcp.AddTool(server,&mcp.Tool{Name:"vocal_vsqx_edit_existing",Description:"Non-destructive edit of existing Miku V4X note pitch/lyrics in a new VSQX: preserves original mCtrl pitch bends, expression controllers, notes, voicebank, nStyle and note timing. Fails if original pitches changed. NEVER overwrites source."},func(ctx context.Context,req *mcp.CallToolRequest,in vsqxEditsInput)(*mcp.CallToolResult,response,error){
   from:=pathFromProject(in.Source);dst,err:=outputPath(in.Out);if err!=nil{return nil,response{},err}
