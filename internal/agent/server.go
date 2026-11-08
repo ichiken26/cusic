@@ -83,7 +83,7 @@ func NewServer()*mcp.Server{
   err:=filepath.WalkDir(root,func(path string,e os.DirEntry,visitErr error)error{
    if visitErr!=nil{return visitErr}
    rel,err:=filepath.Rel(root,path);if err!=nil{return err}
-   if e.IsDir(){if rel!="."&&(strings.HasPrefix(e.Name(),".")||e.Name=="node_modules"||e.Name=="Audio"){return filepath.SkipDir};return nil}
+   if e.IsDir(){if rel!="."&&(strings.HasPrefix(e.Name(),".")||e.Name()=="node_modules"||e.Name()=="Audio"){return filepath.SkipDir};return nil}
    ext:=strings.ToLower(filepath.Ext(path));if _,ok:=files[ext];ok{files[ext]=append(files[ext],rel)}
    return nil
   })
