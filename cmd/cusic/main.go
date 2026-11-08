@@ -151,6 +151,8 @@ func patch(s *store.Store,args []string)error{
  dec:=json.NewDecoder(strings.NewReader(string(b)));dec.DisallowUnknownFields()
  if err=dec.Decode(&p);err!=nil{return err}
  if p.Notes==nil{return errors.New("patch.notes is required (use [] to delete notes)")}
+ t,err:=s.Track(p.Track);if err!=nil{return err}
+ if t.Kind=="vocal"{return errors.New("refusing destructive vocal patch: use non-destructive VSQX/SynthV editing or generate a NEW vocal part")}
  r,err:=s.ApplyPatch(p);if err!=nil{return err};fmt.Printf("Applied patch; HEAD %d\n",r);return nil
 }
 func importSong(s *store.Store,args []string)error{

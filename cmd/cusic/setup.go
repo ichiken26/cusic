@@ -96,12 +96,12 @@ The user gives free-form instructions and does NOT need to learn cusic commands.
 3. Import the DAWproject through project_import. Inspect audio assets and track notes.
 4. For arrangement edits, create bounded track patches based on HEAD.
    Keep existing live guitar/bass recordings untouched; new MIDI is an arrangement suggestion.
-5. Before mixing, use audio analysis of existing WAVs. Report proposed EQ/comp/pan
+5. Before mixing, use mix_analyze_stems to inspect existing WAVs. Report proposed EQ/comp/pan
    settings, distinguishing measured findings from creative recommendations.
-   cusic cannot currently control Cubase EQ or VST plugins remotely.
+   cusic cannot directly change the running Cubase app. Use mix_plan then mix_apply\n   to create a NEW DAWproject with generic EQ, fader and pan values when approved.
 6. NEVER delete or overwrite any existing .svp, .vsqx, .ppsf or .cpr file.
    Vocal expression, pitch automation and retakes are the artist's original work.
-   Do not flatten tuned vocals to MIDI and call it lossless. Produce separate
+   Use vocal_backup_source before any targeted edit. For Miku, vocal_vsqx_edit_existing\n   changes note pitch/lyrics in a NEW VSQX without discarding mCtrl or nStyle.\n   For Teto, prefer the TS/Zod safe existing-note script over the destructive\n   note-replacement bridge. Avoid changing onset/duration of tuned notes.\n   Do not flatten tuned vocals to MIDI and call it lossless. Produce separate
    accompaniment/harmony alternatives and seek approval for vocal modifications.
 7. Avoid overwriting any file. Work in outputs with versioned filenames.
 8. Show the user a clear summary of proposed changes rather than CLI syntax.
