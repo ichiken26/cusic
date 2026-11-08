@@ -12,6 +12,7 @@ import (
  "strconv"
  "strings"
 
+ "github.com/ichiken26/cusic/internal/agent"
  "github.com/ichiken26/cusic/internal/midifile"
  "github.com/ichiken26/cusic/internal/dawproject"
  "github.com/ichiken26/cusic/internal/tuxguitar"
@@ -26,6 +27,8 @@ func run(args []string)error{
  if len(args)==0{return help()}
  switch args[0]{
  case "help","--help","-h":return help()
+ case "mcp":return agent.Run()
+ case "setup":return setup(args[1:])
  case "init":
   f:=flag.NewFlagSet("init",flag.ContinueOnError)
   name:=f.String("name","Untitled","project name");tempo:=f.Int("tempo",120,"BPM");meter:=f.String("meter","4/4","time signature")
