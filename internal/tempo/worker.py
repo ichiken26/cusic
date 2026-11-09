@@ -93,35 +93,44 @@ def analyze(path):
     for s in segments:
         j = int(np.argmax(s))
         local_bpms.append(float(bpms[j]))
-    # Estimate beat anchors using a fixed-tempo grid. These anchors are
-    # exploratory; tempo rendering defaults to uniform mode and requires a
-    # separate explicit confirmation before changing any waveform.
+    # Estimate the phase from the *first* rhythmic section, then follow
+    # attacks gradually. Using one global fixed phase would miss accumulating
+    # drift over a long Suno recording.
     period = 60 / best_bpm
     offsets = np.arange(0, period, 1 / frame_rate)
     frame_times = np.arange(frames) / frame_rate + nfft / (2 * target_sr)
+    first_section_end = min(duration, 18.0)
     phases = []
     for phase in offsets:
-        targets = np.arange(phase, duration - 0.02, period)
+        targets = np.arange(phase, first_section_end, period)
         idx = np.searchsorted(frame_times, targets)
-        idx = np.clip(idx, 0, frames-1)
+        idx = np.clip(idx, 0, frames - 1)
         phases.append(float(np.sum(novelty[idx])))
     phase = float(offsets[int(np.argmax(phases))])
-    beat_times = np.arange(phase, duration, period)
     anchors = []
-    for t in beat_times:
-        j = int(np.argmin(np.abs(frame_times - t)))
-        reach = max(1, int(0.075 * frame_rate))
-        left, right = max(0, j-reach), min(frames, j+reach+1)
-        if left >= right:
-            continue
-        peak = left + int(np.argmax(novelty[left:right]))
-        if float(novelty[peak]) > 0.13 and abs(frame_times[peak] - t) < 0.075:
-            anchors.append(round(float(frame_times[peak]), 6))
-        else:
-            anchors.append(round(float(t), 6))
-    # Adjacent attack corrections must be monotonic, or later stretching
-    # could fold the timeline.
-    anchors = [v for i, v in enumerate(anchors) if i == 0 or v > anchors[i-1]]
+    matched = 0
+    predicted = phase
+    while predicted < duration and len(anchors) < 1500:
+        # Deliberately narrow correction window: don't snap a missing beat to
+        # unrelated fills / 16th notes. Local deviations accumulate over time.
+        reach = min(0.085, period * 0.22)
+        left = int(np.searchsorted(frame_times, predicted - reach))
+        right = int(np.searchsorted(frame_times, predicted + reach))
+        point = predicted
+        if left < right:
+            values = novelty[left:right]
+            delta = frame_times[left:right] - predicted
+            weighted = values * np.exp(-0.5 * (delta / max(period * 0.11, 0.02)) ** 2)
+            index = int(np.argmax(weighted))
+            if values[index] > 0.14 and weighted[index] > 0.10:
+                matched += 1
+                adjustment = float(delta[index]) * 0.85
+                point = predicted + adjustment
+        if anchors and point <= anchors[-1]:
+            point = anchors[-1] + period * 0.5
+        anchors.append(round(float(point), 6))
+        predicted = point + period
+    beat_coverage = matched / max(len(anchors), 1)
     stable_local = bool(local_bpms) and all(
         min(abs(x - best_bpm), abs(x * 2 - best_bpm),
             abs(x / 2 - best_bpm)) <= 3 for x in local_bpms
@@ -136,6 +145,7 @@ def analyze(path):
         "stableLocalTempo": stable_local,
         "durationSeconds": duration,
         "beatTimesSeconds": anchors,
+        "beatCoverage": round(beat_coverage, 3),
         "limitations": "Approximate beat/onset inference; half/double tempo, "
                        "syncopation and beat phase may be wrong. Listen and "
                        "confirm before accepting a tempo or warping stems."
