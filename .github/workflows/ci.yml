@@ -104,6 +104,14 @@ jobs:
           $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
           $matches = @($userPath -split ';' | Where-Object { $_.TrimEnd([char[]]@('\', '/')) -ieq $expected })
           if ($matches.Count -ne 1) { throw "expected exactly one registered bin PATH, got $($matches.Count)" }
+          $rubberband = Join-Path $expected 'rubberband.exe'
+          if (Test-Path $rubberband) {
+            if ((Get-Item $rubberband).Length -eq 0) { throw "Rubber Band install produced an empty executable" }
+            & $rubberband --help *> $null
+            # Some CLI versions return 1 for --help; focus on launch errors.
+          } elseif (-not (Get-Command rubberband -ErrorAction SilentlyContinue)) {
+            throw "Rubber Band was not installed or found on PATH"
+          }
           & (Join-Path $expected 'cusic.exe') help
           if ($LASTEXITCODE -ne 0) { throw "installed executable did not start" }
       - uses: actions/upload-artifact@v4
