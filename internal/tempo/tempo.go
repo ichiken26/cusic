@@ -31,6 +31,7 @@ type Report struct {
     StableLocalTempo bool `json:"stableLocalTempo"`
     DurationSeconds float64 `json:"durationSeconds"`
     BeatTimesSeconds []float64 `json:"beatTimesSeconds"`
+    BeatCoverage float64 `json:"beatCoverage"`
     Limitations string `json:"limitations"`
 }
 
