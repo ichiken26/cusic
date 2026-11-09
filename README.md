@@ -135,6 +135,55 @@ cusic revert 12 # 12がHEADのときだけ
 
 `examples/patch.json` に例がある。**指定トラックの指定小節に含まれる音符を完全置換**するため、残す音符もパッチに必ず含める。範囲をまたぐノートや古いHEADへのパッチは拒否する。修正後はCubaseに新しいファイルをエクスポートして聴き比べる。
 
+## BPM指定なしでSunoステムから始める
+
+SunoのWAVがあるなら、新規プロジェクト作成時にBPMを知っている必要はありません。
+
+~~~bash
+cusic init --name "MySong"
+cusic suno import ./stems
+~~~
+
+- `--tempo` を省略すると **未確定（tempo: 0）** となり、従来の120 BPMを勝手に設定しません。既存の `cusic init --tempo 184` は引き続き使えます。
+- `suno import` はWAVをコピー・登録し、ドラムステムがあればNumPy/SciPyでテンポ候補と確信度を表示します。元のWAVは加工しません。
+- Python未導入や無音・短いWAVで解析できなくても、**音声の取り込み自体は完了**します。
+- 検出結果は **推定**。特に92/184 BPMのような半分・倍テンポ、裏拍や曲中のテンポ揺れには注意して、曲を聴きながら決めてください。
+
+~~~bash
+python -m pip install -r audio/requirements.txt
+cusic tempo analyze                     # いつでも再解析可能
+cusic tempo analyze --source Drums      # ステム名を明示して解析
+cusic tempo set --bpm 184               # 人間が確認したBPMをSQLiteへ記録
+cusic status
+cusic export --format dawproject --out MySong.dawproject
+~~~
+
+**BPM確定前のMIDI/DAWproject/歌声データの書き出しはエラーになります。** 既存のテンポがあるプロジェクトのBPMを暗黙に上書きすることもありません。
+
+### 全ステムを同じ時間補正で新しいWAVへ（任意）
+
+Rubber Bandのコマンドライン版 `rubberband` が別途必要です。全ステムが同じ曲頭・長さで揃ったSuno WAVにのみ使用してください。
+
+~~~bash
+cusic tempo analyze
+cusic tempo set --bpm 184
+cusic tempo render --out ./aligned-v1 --mode uniform --confirm
+# 変動テンポを拍単位で補正する実験機能（推定拍が明確な場合だけ）
+cusic tempo render --out ./aligned-beats-v1 --mode adaptive --confirm
+# テンポ推定の解釈が半分/倍と判明した場合、uniformのみ手動の元BPMを指定可能
+cusic tempo render --out ./aligned-v2 --source-bpm 183.5 --confirm
+~~~
+
+`uniform` は推定元BPMと確定先BPMの比率で一定の長さ補正、`adaptive` は推定した拍の位置からRubber Band用の可変タイムマップを生成します。後者は**実験的**で、拍検出に失敗すると演奏のタイミングを悪化させる恐れがあります。タイムストレッチは無劣化ではありません。
+
+- 処理前に必ず `tempo analyze` の候補をレビューして、**新しい出力ディレクトリ名**を指定してください。
+- 元WAVもcusic内部の元アセットも上書きしません。失敗時は途中成果物を削除します。
+- 音源が同期していない／尺が違う場合は処理を拒否。全ステムに同じ秒単位のタイムマップを使います。
+- 補正後の音がよければ `cusic suno import ./aligned-v1` で**別アセットとして取り込む**ことができます。既存の未補正WAVも残ります。
+- 間違った推定を自動承認することはありません。実際のCubase再生で各パートの同期とクリックを確認してください。
+
+Claude/Codex MCPにも `tempo_analyze`, `tempo_confirm`, `tempo_render` を公開し、確認が必要な処理は承認済みフラグを要求します。初期化 `project_initialize` でもBPMを省略できます。
+
 ## Sunoの音源
 
 Suno Studioから書き出した複数のWAVステムを、音符とは別のアセットとして保存する。
