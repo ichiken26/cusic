@@ -13,3 +13,4 @@ bin/
 synthv/node_modules/
 synthv/dist/
 .DS_Store
+.cusic-tools/
