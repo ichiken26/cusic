@@ -15,6 +15,7 @@ import (
  "strings"
 
  "github.com/ichiken26/cusic/internal/audio"
+ "github.com/ichiken26/cusic/internal/analysis"
  "github.com/ichiken26/cusic/internal/dawproject"
  "github.com/ichiken26/cusic/internal/midifile"
  "github.com/ichiken26/cusic/internal/mix"
@@ -73,6 +74,7 @@ type patchInput struct{
 type revisionInput struct{ Revision int64 `json:"revision"` }
 type vsqxEditsInput struct{ Source string `json:"source"`; Out string `json:"out"`; Changes []vsqx.NoteEdit `json:"changes"` }
 type audioInput struct{ File string `json:"file"`; Name string `json:"name"` }
+type spectralInput struct{ Names []string `json:"names"`; MaxWindows int `json:"maxWindows"` }
 type vocalSourceInput struct{ Source string `json:"source"` }
 type exportInput struct{
  Format string `json:"format"`
@@ -154,6 +156,23 @@ func NewServer()*mcp.Server{
  })
  mcp.AddTool(server,&mcp.Tool{Name:"audio_list",Description:"List registered WAV stems with peak, RMS, channel count, sample rate and duration."},func(ctx context.Context,req *mcp.CallToolRequest,in empty)(*mcp.CallToolResult,response,error){
   return withStore(func(s *store.Store)(any,error){return s.Assets()})
+ })
+ mcp.AddTool(server,&mcp.Tool{Name:"mix_analyze_spectral",Description:"Use Python NumPy/SciPy to compute Hann-window FFT spectra, 8 band RMS dBFS, spectral centroid/rolloff, stereo correlation and inter-stem spectral similarities. Read-only; no mixing/EQ changes. Prefer this tool for detailed mixing analysis. Optional names selects registered stems (up to 32); maxWindows 0 defaults to 512. Requires local Python numpy/scipy."},func(ctx context.Context,req *mcp.CallToolRequest,in spectralInput)(*mcp.CallToolResult,response,error){
+  return withStore(func(s *store.Store)(any,error){
+   assets,err:=s.Assets();if err!=nil{return nil,err}
+   wanted:=map[string]bool{}
+   for _,n:=range in.Names{wanted[n]=true}
+   files:=[]analysis.File{}
+   for _,a:=range assets{
+    if len(wanted)>0&&!wanted[a.Name]{continue}
+    abs,e:=s.AssetAbsolute(a);if e!=nil{return nil,e}
+    files=append(files,analysis.File{Name:a.Name,Path:abs})
+    delete(wanted,a.Name)
+   }
+   if len(wanted)>0{return nil,fmt.Errorf("unknown audio asset name(s): %v",wanted)}
+   if len(files)==0{return nil,errors.New("no WAV assets: import the project's WAV stems first")}
+   return analysis.Analyze(ctx,files,in.MaxWindows)
+  })
  })
  mcp.AddTool(server,&mcp.Tool{Name:"mix_analyze_stems",Description:"Compute measured WAV peak, RMS and approximate broad-band energy for each registered stem. Use this to suggest EQ, compression and gain; it does NOT control Cubase plug-ins or automatically change the mix."},func(ctx context.Context,req *mcp.CallToolRequest,in empty)(*mcp.CallToolResult,response,error){
   return withStore(func(s *store.Store)(any,error){
