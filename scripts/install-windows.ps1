@@ -195,6 +195,10 @@ function Find-SystemPython {
     )
     # Windows py launcher is supported even when python.exe isn't on PATH.
     $probes = @(
+        @{ Name = 'python3.12'; Launcher = '' },
+        @{ Name = 'python3.13'; Launcher = '' },
+        @{ Name = 'python3.11'; Launcher = '' },
+        @{ Name = 'python3.10'; Launcher = '' },
         @{ Name = 'python'; Launcher = '' },
         @{ Name = 'python3'; Launcher = '' },
         @{ Name = 'py'; Launcher = '-3.12' },
