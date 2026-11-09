@@ -40,13 +40,9 @@ cusic MCPには `project_inventory`、`project_status`、`track_inspect`、`proj
 
 波形の高度な計算は **Python + NumPy/SciPy** のオフラインワーカーで行う。GoはMCP・SQLite・ファイル管理、TypeScriptはテトSV2のスクリプト担当。Goだけで行う簡易解析とは別に、NumPyのrFFTを使って音響解析する。
 
-初回だけPython 3.10以上を用意して、cusicリポジトリで依存ライブラリをインストールする（Windows PowerShell）。
+**Windowsは `install.cmd` でPython 3.12・NumPy・SciPyをまとめて自動構築する。** 既存のPythonやpip、Docker Desktopは不要。Python本体と依存パッケージは `.cusic-tools/` 内の仮想環境へ隔離され、Windows全体のPython環境は変更しない。
 
-~~~powershell
-py -m pip install -r .\audio\requirements.txt
-~~~
-
-Pythonを複数インストールしている場合は、環境変数 CUSIC_PYTHON に使用する python.exe のパスを設定する。Python依存は任意で、入れていなくても他のGo製コマンドは動作する。
+cusicのGoバイナリは実行ファイルの位置から `.cusic-tools/venv/Scripts/python.exe` を自動検出して利用する。標準以外のPythonを使いたい場合のみ `CUSIC_PYTHON` で上書き可能。macOS/LinuxでのPython依存は現状手動導入。
 
 登録済みWAVステムなら次のコマンドで測定可能。
 
@@ -85,7 +81,7 @@ CubaseではDAWprojectをインポート/エクスポートして受け渡す。
 
 ## インストール
 
-Goはリポジトリの `go.mod` に指定されたバージョンが必要。SynthVのJSを自分でビルドする場合のみNode.js 22+。
+**Windowsの利用者はGoもPythonも事前インストール不要。** 初回にcusicがGo 1.26.10・uv 0.13.7・Python 3.12・NumPy/SciPy・Rubber Bandをインターネットから取得して専用フォルダに構築する。取得するGo/uv/Rubber BandのアーカイブはSHA-256を照合する。SynthV用JSのソースを自分でビルドする場合のみNode.js 22+が別途必要。
 
 **Windows（推奨・最初の1回だけ）**
 
@@ -95,13 +91,15 @@ cd cusic
 .\install.cmd
 ~~~
 
-`install.cmd` がGoで `bin\cusic.exe` をビルドし、**現在のWindowsユーザーのPATH**に絶対パスで `bin` を永続登録する。管理者権限も `$env:Path += ...` も不要。再実行してもPATHに同じ項目を追加しない。
+`install.cmd` が専用のGoを自動インストールして `bin\cusic.exe` をビルドし、**現在のWindowsユーザーのPATH**に絶対パスで `bin` を永続登録する。管理者権限も `$env:Path += ...` も不要。再実行してもPATHに同じ項目を追加しない。Go/Python/uvは全体のPATHに追加しない。
 
 また、BPM補正に使う **Rubber Band CLI** も自動セットアップする。既にPATH上にあればそのまま利用し、なければ[公式のWindows版](https://breakfastquay.com/rubberband/)（v4.0.0）をダウンロードして公開済みSHA-256を検証し、`bin/rubberband.exe` と必要なDLL・ライセンスファイルを展開。**初回だけネット接続が必要**。Scoopの導入や手作業のPATH追加は不要。ダウンロード・ハッシュ検証に失敗した場合はインストールを失敗として通知し、未検証の実行ファイルを利用しない。
 
-`cusic tempo analyze` で使うPython + NumPy/SciPyは別の任意依存。必要なら `py -m pip install -r .\audio\requirements.txt` で導入する。
+`cusic tempo analyze` やスペクトル解析で使うPython + NumPy/SciPyも、uvを利用して `.cusic-tools/venv` に**自動インストール**する。既存のPython環境を変更しない。初回はGo・Pythonのランタイム取得で相応のダウンロード容量が必要。
 
 **インストール後にターミナルを再起動**（VS Codeの統合ターミナルならVS Code自体を再起動）してから、どの曲フォルダでも `cusic help` を実行できる。現在開いている別プロセスのPATHまでは変更できない。リポジトリのフォルダを移動した場合は、移動後に `install.cmd` を再実行してね。
+
+Windowsでセットアップが完了したら、手動の `pip install`、`go install`、`rubberband` インストールは不要。Pythonのパッケージに更新があった場合も `install.cmd` を再実行すれば専用の仮想環境に同期する。
 
 **macOS / Linux**
 
