@@ -12,6 +12,7 @@ import (
     "os/exec"
     "path/filepath"
     "strings"
+    "runtime"
     "unicode"
 
     "github.com/ichiken26/cusic/internal/store"
@@ -104,8 +105,8 @@ func tempoCommand(s *store.Store,args []string)error {
 }
 
 func renderTempoStems(s *store.Store,out,mode string,from,target float64,sourceName string,report tempo.Report)error{
-    binary,err:=exec.LookPath("rubberband")
-    if err!=nil{return errors.New("rubberband executable missing; install rubberband-cli (pitch-preserving timestretch)")}
+    binary,err:=rubberBandCLI()
+    if err!=nil{return errors.New("rubberband executable missing; rerun cusic install.cmd (Windows) or bash install.sh (macOS)")}
     assets,err:=s.Assets();if err!=nil{return err}
     if len(assets)==0||len(assets)>32{return errors.New("render supports 1..32 WAV stems")}
     reference:=assets[0].Stats.Duration
@@ -209,4 +210,14 @@ func safeStemName(name string)string{
     runes:=[]rune(cleaned)
     if len(runes)>48{cleaned=string(runes[:48])}
     return cleaned
+}
+
+func rubberBandCLI()(string,error){
+    if current,err:=os.Executable();err==nil{
+        executable:="rubberband"
+        if runtime.GOOS=="windows"{executable+=".exe"}
+        path:=filepath.Join(filepath.Dir(current),executable)
+        if info,e:=os.Stat(path);e==nil && !info.IsDir(){return path,nil}
+    }
+    return exec.LookPath("rubberband")
 }
