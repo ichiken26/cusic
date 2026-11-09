@@ -97,6 +97,10 @@ cd cusic
 
 `install.cmd` がGoで `bin\cusic.exe` をビルドし、**現在のWindowsユーザーのPATH**に絶対パスで `bin` を永続登録する。管理者権限も `$env:Path += ...` も不要。再実行してもPATHに同じ項目を追加しない。
 
+また、BPM補正に使う **Rubber Band CLI** も自動セットアップする。既にPATH上にあればそのまま利用し、なければ[公式のWindows版](https://breakfastquay.com/rubberband/)（v4.0.0）をダウンロードして公開済みSHA-256を検証し、`bin/rubberband.exe` と必要なDLL・ライセンスファイルを展開。**初回だけネット接続が必要**。Scoopの導入や手作業のPATH追加は不要。ダウンロード・ハッシュ検証に失敗した場合はインストールを失敗として通知し、未検証の実行ファイルを利用しない。
+
+`cusic tempo analyze` で使うPython + NumPy/SciPyは別の任意依存。必要なら `py -m pip install -r .\audio\requirements.txt` で導入する。
+
 **インストール後にターミナルを再起動**（VS Codeの統合ターミナルならVS Code自体を再起動）してから、どの曲フォルダでも `cusic help` を実行できる。現在開いている別プロセスのPATHまでは変更できない。リポジトリのフォルダを移動した場合は、移動後に `install.cmd` を再実行してね。
 
 **macOS / Linux**
