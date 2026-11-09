@@ -40,7 +40,7 @@ cusic MCPには `project_inventory`、`project_status`、`track_inspect`、`proj
 
 波形の高度な計算は **Python + NumPy/SciPy** のオフラインワーカーで行う。GoはMCP・SQLite・ファイル管理、TypeScriptはテトSV2のスクリプト担当。Goだけで行う簡易解析とは別に、NumPyのrFFTを使って音響解析する。
 
-**Windowsは `install.cmd` でPython 3.12・NumPy・SciPyをまとめて自動構築する。** 既存のPythonやpip、Docker Desktopは不要。Python本体と依存パッケージは `.cusic-tools/` 内の仮想環境へ隔離され、Windows全体のPython環境は変更しない。
+**Windowsの `install.cmd` とmacOSの `install.sh` は、まずインストール済みPythonとNumPy/SciPyを検査する。** Python 3.10以上でNumPy 2.x・SciPy 1.13以上（2未満）が正常にimportできれば、そのまま再利用して仮想環境・uvのセットアップをスキップ。Pythonはあるが必要なモジュールが足りない場合だけ、既存のPythonを使ってcusic専用仮想環境を作り、不足している依存をその中へインストールする。Python自体が使えない場合に限ってマネージドPythonを自動導入する。既存のPython環境は変更しない。Docker Desktopは不要。
 
 cusicのGoバイナリは実行ファイルの位置から専用のPython（Windowsは `.cusic-tools/venv/Scripts/python.exe`、macOSは `.cusic-tools/venv/bin/python`）を自動検出して利用する。標準以外のPythonを使いたい場合のみ `CUSIC_PYTHON` で上書き可能。LinuxでのPython依存は現状手動導入。
 
@@ -81,7 +81,7 @@ CubaseではDAWprojectをインポート/エクスポートして受け渡す。
 
 ## インストール
 
-**Windowsの利用者はGoもPythonも事前インストール不要。** 初回にcusicがGo 1.26.10・uv 0.13.7・Python 3.12・NumPy/SciPy・Rubber Bandをインターネットから取得して専用フォルダに構築する。取得するGo/uv/Rubber BandのアーカイブはSHA-256を照合する。SynthV用JSのソースを自分でビルドする場合のみNode.js 22+が別途必要。
+**Windows / macOSとも、Go・Pythonの事前インストールは不要。** ただしインストール済みなら使えるものを優先！ Go 1.26以上なら既存の `go` を使用し、uv 0.13.7以上も必要時だけ再利用する。PythonとNumPy/SciPyが使える場合はuvさえインストールしない。不足分だけcusic専用フォルダにダウンロードする（Go 1.26.10・uv 0.13.7・必要に応じてPython 3.12）。取得するGo/uv/Rubber BandのアーカイブはSHA-256を照合する。SynthV用JSのソースを自分でビルドする場合のみNode.js 22+が別途必要。
 
 **Windows（推奨・最初の1回だけ）**
 
@@ -91,11 +91,11 @@ cd cusic
 .\install.cmd
 ~~~
 
-`install.cmd` が専用のGoを自動インストールして `bin\cusic.exe` をビルドし、**現在のWindowsユーザーのPATH**に絶対パスで `bin` を永続登録する。管理者権限も `$env:Path += ...` も不要。再実行してもPATHに同じ項目を追加しない。Go/Python/uvは全体のPATHに追加しない。
+`install.cmd` は互換性のある既存Goを優先して `bin\cusic.exe` をビルドし、**現在のWindowsユーザーのPATH**に絶対パスで `bin` を永続登録する。管理者権限も `$env:Path += ...` も不要。再実行してもPATHに同じ項目を追加しない。Go/Python/uvは全体のPATHに追加しない。
 
 また、BPM補正に使う **Rubber Band CLI** も自動セットアップする。既にPATH上にあればそのまま利用し、なければ[公式のWindows版](https://breakfastquay.com/rubberband/)（v4.0.0）をダウンロードして公開済みSHA-256を検証し、`bin/rubberband.exe` と必要なDLL・ライセンスファイルを展開。**初回だけネット接続が必要**。Scoopの導入や手作業のPATH追加は不要。ダウンロード・ハッシュ検証に失敗した場合はインストールを失敗として通知し、未検証の実行ファイルを利用しない。
 
-`cusic tempo analyze` やスペクトル解析で使うPython + NumPy/SciPyも、uvを利用して `.cusic-tools/venv` に**自動インストール**する。既存のPython環境を変更しない。初回はGo・Pythonのランタイム取得で相応のダウンロード容量が必要。
+`cusic tempo analyze` やスペクトル解析で使うPython + NumPy/SciPyは、既存の環境で利用可能かを**最初にチェック**。揃っていればダウンロードなし、不足している場合だけuvと専用仮想環境を利用する。Go・Pythonのランタイム取得は、対応版がPCに存在しないときだけ行う。
 
 **インストール後にターミナルを再起動**（VS Codeの統合ターミナルならVS Code自体を再起動）してから、どの曲フォルダでも `cusic help` を実行できる。現在開いている別プロセスのPATHまでは変更できない。リポジトリのフォルダを移動した場合は、移動後に `install.cmd` を再実行してね。
 
@@ -109,7 +109,7 @@ cd cusic
 bash ./install.sh
 ~~~
 
-macOSでも **Go 1.26.10・uv 0.13.7・Python 3.12・NumPy/SciPy・Rubber Band CLI** をすべて自動でインストールする。Homebrew、Docker Desktop、グローバルなGo/Pythonインストールは不要。Goとuvの公式アーカイブをSHA-256検証し、Rubber Bandの公式macOS配布物も検証して、cusicリポジトリ内の `.cusic-tools/` と `bin/` に配置する。二重実行時は既存の専用ツールを再利用して依存パッケージを同期する。
+macOSでもGo・uv・Python・NumPy/SciPy・Rubber Band CLIの**インストール状況と動作を確認して、不足分だけ自動で導入**する。Homebrew、Docker Desktop、グローバルなGo/Pythonインストールは不要。Goとuvの公式アーカイブをSHA-256検証し、Rubber Bandの公式macOS配布物も検証して、cusicリポジトリ内の `.cusic-tools/` と `bin/` に配置する。二重実行時は既存の専用ツールを再利用して依存パッケージを同期する。
 
 `~/.zshrc` と `~/.bash_profile` に重複しないPATH設定を追加。ターミナル再起動後、どの曲フォルダからでも `cusic help` を実行できる。実行ファイルから専用Pythonを自動検出するため、仮想環境のactivateも不要。
 

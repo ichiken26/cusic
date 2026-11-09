@@ -110,20 +110,23 @@ jobs:
           $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
           $matches = @($userPath -split ';' | Where-Object { $_.TrimEnd([char[]]@('\', '/')) -ieq $expected })
           if ($matches.Count -ne 1) { throw "expected exactly one registered bin PATH, got $($matches.Count)" }
-          # Go and Python must come from the project-private toolchain,
-          # not an OS/global installation or the runner's setup-go.
+          # setup-go provides a compatible system Go. The installer MUST
+          # reuse it instead of downloading a duplicate toolchain.
           $tools = Join-Path $repo '.cusic-tools'
           $privateGo = Join-Path $tools 'go\bin\go.exe'
-          $privateUv = Join-Path $tools 'uv\uv.exe'
+          if (Test-Path $privateGo) { throw "unnecessary Go download: compatible Go was already on PATH" }
           $privatePython = Join-Path $tools 'venv\Scripts\python.exe'
-          foreach ($path in @($privateGo, $privateUv, $privatePython)) {
-            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "missing private dependency: $path" }
+          $checker = Join-Path $repo 'scripts\check-python.py'
+          if (Test-Path $privatePython) {
+            & $privatePython -B $checker
+            if ($LASTEXITCODE -ne 0) { throw "private Python NumPy/SciPy verification failed" }
+          } else {
+            $python = (Get-Command python -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+            if (-not $python) { throw "Python not present in venv or system" }
+            & $python -B $checker
+            if ($LASTEXITCODE -ne 0) { throw "installed Python packages missing" }
+            if (Test-Path (Join-Path $tools 'uv\uv.exe')) { throw "uv should not be installed when system Python has all packages" }
           }
-          & $privateGo version
-          if ($LASTEXITCODE -ne 0) { throw "portable Go cannot execute" }
-          & $privatePython -c 'import numpy, scipy; print(numpy.__version__, scipy.__version__)'
-          if ($LASTEXITCODE -ne 0) { throw "private Python NumPy/SciPy imports failed" }
-          # Confirm the production executable's bundled Python discovery.
           $env:CUSIC_PYTHON = ''
           & (Join-Path $expected 'cusic.exe') help
           if ($LASTEXITCODE -ne 0) { throw "production executable cannot launch" }
@@ -146,10 +149,20 @@ jobs:
           cd "$RUNNER_TEMP"
           bash "$repo/install.sh"
           bash "$repo/install.sh"
-          test -x "$repo/.cusic-tools/go/bin/go"
-          test -x "$repo/.cusic-tools/uv/uv"
-          test -x "$repo/.cusic-tools/venv/bin/python"
-          "$repo/.cusic-tools/venv/bin/python" -c 'import numpy, scipy; print(numpy.__version__, scipy.__version__)'
+          # setup-go already provides Go 1.26+, so a private Go
+          # installation here would be redundant.
+          test ! -e "$repo/.cusic-tools/go"
+          if test -x "$repo/.cusic-tools/venv/bin/python"; then
+            "$repo/.cusic-tools/venv/bin/python" -B "$repo/scripts/check-python.py"
+          else
+            # Existing system Python with NumPy/SciPy should have been reused.
+            found=0
+            for py in python3.12 python3.13 python3.11 python3.10 python3 python; do
+              if command -v "$py" >/dev/null 2>&1 && "$py" -B "$repo/scripts/check-python.py"; then found=1; break; fi
+            done
+            test "$found" -eq 1
+            test ! -e "$repo/.cusic-tools/uv"
+          fi
           if test -x "$repo/bin/rubberband"; then
             file "$repo/bin/rubberband"
             "$repo/bin/rubberband" --help >/dev/null 2>&1 || true

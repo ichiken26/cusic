@@ -58,30 +58,49 @@ type Report struct {
  Limitations string `json:"limitations"`
 }
 
+// candidatePythonAvailable checks the same dependency ranges as
+// audio/requirements.txt. Probing candidates avoids picking a Python alias
+// without NumPy while a different installed Python is already usable.
+func candidatePythonAvailable(path string, prefix []string) bool {
+ probe := "import sys,numpy,scipy; assert sys.version_info >= (3,10); assert 2 <= int(numpy.__version__.split('.')[0]) < 3; assert (1,13) <= tuple(int(v) for v in scipy.__version__.split('.')[:2]) < (2,0)"
+ ctx,cancel:=context.WithTimeout(context.Background(),10*time.Second)
+ defer cancel()
+ args:=append(append([]string{},prefix...),"-c",probe)
+ cmd:=exec.CommandContext(ctx,path,args...)
+ return cmd.Run()==nil
+}
+
 func Python() (string, []string, error) {
- if val := os.Getenv("CUSIC_PYTHON"); val!="" {
-  path,err:=exec.LookPath(val);if err!=nil{return "",nil,fmt.Errorf("CUSIC_PYTHON=%s not found: %w",val,err)}
+ if val:=os.Getenv("CUSIC_PYTHON");val!=""{
+  path,err:=exec.LookPath(val)
+  if err!=nil{return "",nil,fmt.Errorf("CUSIC_PYTHON=%s not found: %w",val,err)}
   return path,nil,nil
  }
- // Self-contained Windows installs put the interpreter in a private venv
- // beside the cusic checkout. The user does not need Python on global PATH.
- // CUSIC_PYTHON always overrides this for advanced/custom installations.
- if executable,err:=os.Executable();err==nil {
-  checkout:=filepath.Clean(filepath.Join(filepath.Dir(executable),".."))
-  py:=filepath.Join(checkout,".cusic-tools","venv","Scripts","python.exe")
-  if runtime.GOOS!="windows" {py=filepath.Join(checkout,".cusic-tools","venv","bin","python")}
-  if info,e:=os.Stat(py);e==nil && !info.IsDir(){return py,nil,nil}
+
+ candidates:=[]string{"python3.12","python3.13","python3.11","python3.10","python3","python"}
+ if runtime.GOOS=="windows"{candidates=[]string{"python","python3","python3.12","python3.13","python3.11","python3.10"}}
+ // Prefer existing compatible packages to a stale private environment.
+ for _,name:=range candidates{
+  if path,err:=exec.LookPath(name);err==nil && candidatePythonAvailable(path,nil){return path,nil,nil}
  }
- choices:=[]string{"python3","python"}
- if runtime.GOOS=="windows"{choices=[]string{"python","python3","py"}}
- for _,name:=range choices {
-  if path,err:=exec.LookPath(name);err==nil{
-   if name=="py"{return path,[]string{"-3"},nil}
-   return path,nil,nil
+ if runtime.GOOS=="windows"{
+  if path,err:=exec.LookPath("py");err==nil{
+   for _,prefix:=range [][]string{{"-3.12"},{"-3"}}{
+    if candidatePythonAvailable(path,prefix){return path,prefix,nil}
+   }
   }
  }
- return "",nil,errors.New("Python not found: on Windows rerun cusic install.cmd to provision the private environment, or set CUSIC_PYTHON")
+ // If global Python has no suitable packages, use the isolated venv created
+ // by install.cmd / install.sh without requiring shell activation.
+ if executable,err:=os.Executable();err==nil{
+  checkout:=filepath.Clean(filepath.Join(filepath.Dir(executable),".."))
+  py:=filepath.Join(checkout,".cusic-tools","venv","Scripts","python.exe")
+  if runtime.GOOS!="windows"{py=filepath.Join(checkout,".cusic-tools","venv","bin","python")}
+  if info,e:=os.Stat(py);e==nil && !info.IsDir() && candidatePythonAvailable(py,nil){return py,nil,nil}
+ }
+ return "",nil,errors.New("No compatible Python with NumPy/SciPy found: rerun install.cmd (Windows) or bash install.sh (macOS), or set CUSIC_PYTHON")
 }
+
 func Analyze(ctx context.Context,files []File,maxWindows int)(Report,error) {
  var zero Report
  if len(files)==0||len(files)>32{return zero,errors.New("select 1..32 audio files")}

@@ -114,6 +114,114 @@ function Get-VerifiedArchive {
     }
 }
 
+function Test-UsableGo {
+    param([Parameter(Mandatory = $true)][string] $Exe)
+    try {
+        $output = & $Exe version 2>$null
+        if ($LASTEXITCODE -ne 0) { return $false }
+        $match = [regex]::Match(($output -join ' '), 'go(\d+)\.(\d+)(?:\.(\d+))?')
+        if (-not $match.Success) { return $false }
+        $patch = if ($match.Groups[3].Success) { $match.Groups[3].Value } else { '0' }
+        $version = [version]::Parse("$($match.Groups[1].Value).$($match.Groups[2].Value).$patch")
+        return ($version -ge [version]'1.26.0')
+    } catch { return $false }
+}
+
+function Resolve-Go {
+    param([Parameter(Mandatory = $true)][string] $ToolsRoot)
+    # Go 1.26+ already on the machine? Use it, no redundant download.
+    $commands = @(Get-Command 'go' -All -CommandType Application -ErrorAction SilentlyContinue)
+    foreach ($command in $commands) {
+        if (Test-UsableGo -Exe $command.Source) {
+            Write-Host "Reusing installed Go: $($command.Source)"
+            return $command.Source
+        }
+    }
+    $localExe = Join-Path $ToolsRoot 'go\bin\go.exe'
+    if ((Test-Path -LiteralPath $localExe -PathType Leaf) -and (Test-UsableGo -Exe $localExe)) {
+        Write-Host "Reusing cusic's existing Go."
+        return $localExe
+    }
+    return Install-PortableGo -ToolsRoot $ToolsRoot
+}
+
+function Test-UsableUV {
+    param([Parameter(Mandatory = $true)][string] $Exe)
+    try {
+        $output = & $Exe --version 2>$null
+        if ($LASTEXITCODE -ne 0) { return $false }
+        $match = [regex]::Match(($output -join ' '), 'uv\s+(\d+)\.(\d+)\.(\d+)')
+        if (-not $match.Success) { return $false }
+        $version = [version]::Parse("$($match.Groups[1].Value).$($match.Groups[2].Value).$($match.Groups[3].Value)")
+        return ($version -ge [version]'0.13.7')
+    } catch { return $false }
+}
+
+function Resolve-UV {
+    param([Parameter(Mandatory = $true)][string] $ToolsRoot)
+    foreach ($command in @(Get-Command 'uv' -All -CommandType Application -ErrorAction SilentlyContinue)) {
+        if (Test-UsableUV -Exe $command.Source) {
+            Write-Host "Reusing installed uv: $($command.Source)"
+            return $command.Source
+        }
+    }
+    $localExe = Join-Path $ToolsRoot 'uv\uv.exe'
+    if ((Test-Path -LiteralPath $localExe -PathType Leaf) -and (Test-UsableUV -Exe $localExe)) {
+        Write-Host "Reusing cusic's existing uv."
+        return $localExe
+    }
+    return Install-PortableUV -ToolsRoot $ToolsRoot
+}
+
+function Test-UsablePython {
+    param(
+        [Parameter(Mandatory = $true)][string] $Exe,
+        [Parameter(Mandatory = $true)][string] $Checker,
+        [switch] $RuntimeOnly
+    )
+    if (-not (Test-Path -LiteralPath $Exe -PathType Leaf)) { return $false }
+    try {
+        $args = @('-B', $Checker)
+        if ($RuntimeOnly) { $args += '--runtime-only' }
+        & $Exe @args *> $null
+        return ($LASTEXITCODE -eq 0)
+    } catch { return $false }
+}
+
+function Find-SystemPython {
+    param(
+        [Parameter(Mandatory = $true)][string] $Checker,
+        [switch] $RuntimeOnly
+    )
+    # Windows py launcher is supported even when python.exe isn't on PATH.
+    $probes = @(
+        @{ Name = 'python3.12'; Launcher = '' },
+        @{ Name = 'python3.13'; Launcher = '' },
+        @{ Name = 'python3.11'; Launcher = '' },
+        @{ Name = 'python3.10'; Launcher = '' },
+        @{ Name = 'python'; Launcher = '' },
+        @{ Name = 'python3'; Launcher = '' },
+        @{ Name = 'py'; Launcher = '-3.12' },
+        @{ Name = 'py'; Launcher = '-3' }
+    )
+    foreach ($probe in $probes) {
+        $command = Get-Command $probe.Name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $command) { continue }
+        $pythonPath = $command.Source
+        if ($probe.Name -eq 'py') {
+            try {
+                $output = & $command.Source $probe.Launcher -c 'import sys; print(sys.executable)' 2>$null
+                if ($LASTEXITCODE -ne 0) { continue }
+                $pythonPath = ($output | Select-Object -Last 1).Trim()
+            } catch { continue }
+        }
+        if (Test-UsablePython -Exe $pythonPath -Checker $Checker -RuntimeOnly:$RuntimeOnly) {
+            return $pythonPath
+        }
+    }
+    return $null
+}
+
 function Install-PortableGo {
     param([Parameter(Mandatory = $true)][string] $ToolsRoot)
     $version = '1.26.10'
@@ -188,36 +296,54 @@ function Install-PortableUV {
 function Install-PythonEnvironment {
     param(
         [Parameter(Mandatory = $true)][string] $RepoRoot,
-        [Parameter(Mandatory = $true)][string] $ToolsRoot,
-        [Parameter(Mandatory = $true)][string] $UvExe
+        [Parameter(Mandatory = $true)][string] $ToolsRoot
     )
+    $checker = Join-Path $RepoRoot 'scripts\check-python.py'
     $venv = Join-Path $ToolsRoot 'venv'
     $venvPython = Join-Path $venv 'Scripts\python.exe'
     $requirements = Join-Path $RepoRoot 'audio\requirements.txt'
 
-    # The managed Python runtime and pip's wheel/cache downloads are private
-    # to cusic, including when a user has another Python installed globally.
+    # Existing compatible Python with working NumPy/SciPy wins, even if
+    # someone previously installed a cusic private environment.
+    $systemPython = Find-SystemPython -Checker $checker
+    if ($systemPython) {
+        Write-Host "Reusing installed Python, NumPy and SciPy: $systemPython"
+        return
+    }
+    if (Test-UsablePython -Exe $venvPython -Checker $checker) {
+        Write-Host 'Reusing existing cusic Python venv with NumPy/SciPy.'
+        return
+    }
+
+    # Only resolve/install uv if an isolated environment actually needs work.
+    $uvExe = Resolve-UV -ToolsRoot $ToolsRoot
     $env:UV_PYTHON_INSTALL_DIR = Join-Path $ToolsRoot 'python'
     $env:UV_CACHE_DIR = Join-Path $ToolsRoot 'cache'
     $env:UV_NO_PROGRESS = '1'
-    $env:UV_PYTHON_PREFERENCE = 'only-managed'
 
     if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) {
-        Write-Host 'Downloading isolated Python 3.12 runtime with uv...'
-        & $UvExe python install 3.12
-        if ($LASTEXITCODE -ne 0) { throw "uv python install failed (exit code $LASTEXITCODE)" }
-        & $UvExe venv --python 3.12 --python-preference only-managed $venv
+        $existingRuntime = Find-SystemPython -Checker $checker -RuntimeOnly
+        if ($existingRuntime) {
+            Write-Host "Creating isolated cusic venv using installed Python: $existingRuntime"
+            & $uvExe venv --python $existingRuntime --python-preference only-system $venv
+        } else {
+            Write-Host 'No usable Python runtime found. Installing private Python 3.12...'
+            $env:UV_PYTHON_PREFERENCE = 'only-managed'
+            & $uvExe python install 3.12
+            if ($LASTEXITCODE -ne 0) { throw "uv python install failed (exit code $LASTEXITCODE)" }
+            & $uvExe venv --python 3.12 --python-preference only-managed $venv
+        }
         if ($LASTEXITCODE -ne 0) { throw "uv venv failed (exit code $LASTEXITCODE)" }
     }
 
-    Write-Host 'Synchronizing NumPy/SciPy in cusic private virtual environment...'
-    & $UvExe pip install --python $venvPython -r $requirements
+    Write-Host 'Installing only missing/incompatible NumPy/SciPy in private venv...'
+    & $uvExe pip install --python $venvPython -r $requirements
     if ($LASTEXITCODE -ne 0) { throw "uv pip install failed (exit code $LASTEXITCODE)" }
-    # Avoid nested string quotes: Windows PowerShell 5.1 strips some quotes
-    # when forwarding native arguments to python.exe.
-    & $venvPython -c 'import numpy, scipy'
-    if ($LASTEXITCODE -ne 0) { throw 'NumPy/SciPy verification failed' }
+    if (-not (Test-UsablePython -Exe $venvPython -Checker $checker)) {
+        throw 'NumPy/SciPy verification failed. Check .cusic-tools/venv.'
+    }
 }
+
 
 try {
     $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -233,8 +359,10 @@ try {
     $toolsRoot = Join-Path $repoRoot '.cusic-tools'
     New-Item -ItemType Directory -Path $toolsRoot -Force | Out-Null
 
-    $goExe = Install-PortableGo -ToolsRoot $toolsRoot
-    $env:GOROOT = Join-Path $toolsRoot 'go'
+    $goExe = Resolve-Go -ToolsRoot $toolsRoot
+    if ($goExe -ieq (Join-Path $toolsRoot 'go\bin\go.exe')) {
+        $env:GOROOT = Join-Path $toolsRoot 'go'
+    }
     $env:GOTOOLCHAIN = 'local'
     $env:CGO_ENABLED = '0' # keep the install self-contained without MSVC
 
@@ -252,8 +380,7 @@ try {
     # Always provision the optional-but-required-for-tempo-render CLI once.
     Install-RubberBand -BinDir $binDir
 
-    $uvExe = Install-PortableUV -ToolsRoot $toolsRoot
-    Install-PythonEnvironment -RepoRoot $repoRoot -ToolsRoot $toolsRoot -UvExe $uvExe
+    Install-PythonEnvironment -RepoRoot $repoRoot -ToolsRoot $toolsRoot
 
     # Read the *user* PATH, not $env:Path: the latter also includes machine and
     # temporary session entries and should not be persisted wholesale.
@@ -286,7 +413,7 @@ try {
         $env:Path = $env:Path.TrimEnd(';') + ';' + $binDir
     }
 
-    Write-Host 'Installed cusic, Go, isolated Python, NumPy/SciPy, and Rubber Band successfully.'
+    Write-Host 'cusic ready: reusing compatible Go/Python dependencies, installing only what was missing.'
     Write-Host 'Restart your terminal (and VS Code if using its integrated terminal), then run: cusic help'
     exit 0
 } catch {

@@ -37,13 +37,62 @@ download_verified() {
   fi
 }
 
+version_at_least() {
+  local major="$1" minor="$2" patch="$3" req_major="$4" req_minor="$5" req_patch="$6"
+  (( major > req_major || (major == req_major && (minor > req_minor || (minor == req_minor && patch >= req_patch))) ))
+}
+
+usable_go() {
+  local output
+  output="$("$1" version 2>/dev/null)" || return 1
+  if [[ "$output" =~ go([0-9]+)\.([0-9]+)(\.([0-9]+))? ]]; then
+    version_at_least "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[4]:-0}" 1 26 0
+  else
+    return 1
+  fi
+}
+
+usable_uv() {
+  local output
+  output="$("$1" --version 2>/dev/null)" || return 1
+  if [[ "$output" =~ uv[[:space:]]+([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+    version_at_least "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" 0 13 7
+  else
+    return 1
+  fi
+}
+
+find_python() {
+  local mode="$1" candidate path
+  for candidate in python3.12 python3.13 python3.11 python3.10 python3 python; do
+    path="$(command -v "$candidate" 2>/dev/null || true)"
+    [[ -n "$path" && -x "$path" ]] || continue
+    if [[ "$mode" == runtime ]]; then
+      if "$path" -B "$repo_root/scripts/check-python.py" --runtime-only >/dev/null 2>&1; then
+        printf '%s\n' "$path"
+        return 0
+      fi
+    elif "$path" -B "$repo_root/scripts/check-python.py" >/dev/null 2>&1; then
+      printf '%s\n' "$path"
+      return 0
+    fi
+  done
+  return 1
+}
+
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/cusic-install.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
 
 go_exe="$tools_dir/go/bin/go"
-if [[ ! -x "$go_exe" ]]; then
+system_go="$(command -v go 2>/dev/null || true)"
+if [[ -n "$system_go" ]] && usable_go "$system_go"; then
+  echo "Reusing installed Go: $system_go"
+  go_exe="$system_go"
+elif [[ -x "$go_exe" ]] && usable_go "$go_exe"; then
+  echo 'Reusing cusic private Go.'
+else
   if [[ -e "$tools_dir/go" ]]; then
-    echo "Incomplete portable Go install: remove .cusic-tools/go and retry." >&2
+    echo "Incomplete or incompatible Go at .cusic-tools/go; remove that folder and retry." >&2
     exit 1
   fi
   echo 'Installing portable Go 1.26.10...'
@@ -54,38 +103,60 @@ if [[ ! -x "$go_exe" ]]; then
   mv "$scratch/go-extract/go" "$tools_dir/go"
 fi
 
-export GOROOT="$tools_dir/go"
+if [[ "$go_exe" == "$tools_dir/go/bin/go" ]]; then
+  export GOROOT="$tools_dir/go"
+fi
 export GOTOOLCHAIN=local
-export CGO_ENABLED=0  # cusic uses pure-Go SQLite; no Xcode Command Line Tools needed
-echo 'Building cusic with the bundled Go runtime...'
+export CGO_ENABLED=0
+echo 'Building cusic with a compatible Go runtime...'
 (cd "$repo_root" && "$go_exe" build -mod=readonly -o "$bin_dir/cusic" ./cmd/cusic)
 
 uv_exe="$tools_dir/uv/uv"
-if [[ ! -x "$uv_exe" ]]; then
-  echo 'Installing private uv 0.13.7...'
-  download_verified "https://github.com/astral-sh/uv/releases/download/0.13.7/$uv_archive" "$uv_sha" "$scratch/uv.tgz"
-  mkdir -p "$scratch/uv-extract"
-  tar -xzf "$scratch/uv.tgz" -C "$scratch/uv-extract"
-  uv_found="$(find "$scratch/uv-extract" -type f -name uv | head -n 1)"
-  [[ -n "$uv_found" ]] || { echo 'Missing uv executable' >&2; exit 1; }
-  mkdir -p "$tools_dir/uv"
-  cp "$uv_found" "$uv_exe"
-  chmod +x "$uv_exe"
-fi
+system_python="$(find_python packages || true)"
+private_python="$tools_dir/venv/bin/python"
 
-export UV_PYTHON_INSTALL_DIR="$tools_dir/python"
-export UV_CACHE_DIR="$tools_dir/cache"
-export UV_PYTHON_PREFERENCE=only-managed
-export UV_NO_PROGRESS=1
-python_exe="$tools_dir/venv/bin/python"
-if [[ ! -x "$python_exe" ]]; then
-  echo 'Installing private Python 3.12...'
-  "$uv_exe" python install 3.12
-  "$uv_exe" venv --python 3.12 --python-preference only-managed "$tools_dir/venv"
+if [[ -n "$system_python" ]]; then
+  echo "Reusing installed Python, NumPy and SciPy: $system_python"
+elif [[ -x "$private_python" ]] && "$private_python" -B "$repo_root/scripts/check-python.py" >/dev/null 2>&1; then
+  echo 'Reusing cusic private Python venv with NumPy/SciPy.'
+else
+  # uv is only needed if Python + packages are actually missing.
+  system_uv="$(command -v uv 2>/dev/null || true)"
+  if [[ -n "$system_uv" ]] && usable_uv "$system_uv"; then
+    echo "Reusing installed uv: $system_uv"
+    uv_exe="$system_uv"
+  elif [[ -x "$uv_exe" ]] && usable_uv "$uv_exe"; then
+    echo 'Reusing cusic private uv.'
+  else
+    echo 'Installing private uv 0.13.7...'
+    download_verified "https://github.com/astral-sh/uv/releases/download/0.13.7/$uv_archive" "$uv_sha" "$scratch/uv.tgz"
+    mkdir -p "$scratch/uv-extract"
+    tar -xzf "$scratch/uv.tgz" -C "$scratch/uv-extract"
+    uv_found="$(find "$scratch/uv-extract" -type f -name uv | head -n 1)"
+    [[ -n "$uv_found" ]] || { echo 'Missing uv executable' >&2; exit 1; }
+    mkdir -p "$tools_dir/uv"
+    cp "$uv_found" "$uv_exe"
+    chmod +x "$uv_exe"
+  fi
+
+  export UV_PYTHON_INSTALL_DIR="$tools_dir/python"
+  export UV_CACHE_DIR="$tools_dir/cache"
+  export UV_NO_PROGRESS=1
+  if [[ ! -x "$private_python" ]]; then
+    existing_runtime="$(find_python runtime || true)"
+    if [[ -n "$existing_runtime" ]]; then
+      echo "Creating private venv using installed Python: $existing_runtime"
+      "$uv_exe" venv --python "$existing_runtime" --python-preference only-system "$tools_dir/venv"
+    else
+      echo 'No usable Python runtime. Installing private Python 3.12...'
+      "$uv_exe" python install 3.12
+      "$uv_exe" venv --python 3.12 --python-preference only-managed "$tools_dir/venv"
+    fi
+  fi
+  echo 'Installing only missing/incompatible NumPy/SciPy into private venv...'
+  "$uv_exe" pip install --python "$private_python" -r "$repo_root/audio/requirements.txt"
+  "$private_python" -B "$repo_root/scripts/check-python.py" || { echo 'NumPy/SciPy verification failed.' >&2; exit 1; }
 fi
-echo 'Installing NumPy and SciPy inside cusic private Python venv...'
-"$uv_exe" pip install --python "$python_exe" -r "$repo_root/audio/requirements.txt"
-"$python_exe" -c 'import numpy, scipy; print("NumPy/SciPy ready:", numpy.__version__, scipy.__version__)'
 
 if [[ ! -x "$bin_dir/rubberband" ]]; then
   if command -v rubberband >/dev/null 2>&1; then
@@ -118,5 +189,5 @@ for profile in "$HOME/.zshrc" "$HOME/.bash_profile"; do
   fi
 done
 
-echo 'cusic, isolated Go/Python, NumPy/SciPy and Rubber Band installed!'
+echo 'cusic ready: reused compatible Go/Python dependencies; installed only missing tools.'
 echo 'Open a new terminal and run: cusic help'
