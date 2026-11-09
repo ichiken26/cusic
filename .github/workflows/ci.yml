@@ -77,6 +77,9 @@ jobs:
           - os: macos-latest
             name: macos-arm64
             ext: ''
+          - os: macos-15-intel
+            name: macos-amd64
+            ext: ''
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -131,6 +134,13 @@ jobs:
           }
           & (Join-Path $expected 'cusic.exe') help
           if ($LASTEXITCODE -ne 0) { throw "installed executable did not start" }
+      - name: Discover official Rubber Band macOS digest and archive layout
+        if: startsWith(matrix.os, 'macos')
+        shell: bash
+        run: |
+          curl -fsSL --retry 3 https://breakfastquay.com/files/releases/rubberband-4.0.0-gpl-executable-macos.tar.bz2 -o "${RUNNER_TEMP}/rubberband-macos.tbz"
+          shasum -a 256 "${RUNNER_TEMP}/rubberband-macos.tbz"
+          tar -tjf "${RUNNER_TEMP}/rubberband-macos.tbz" | head -30
       - uses: actions/upload-artifact@v4
         with:
           name: cusic-${{ matrix.name }}
