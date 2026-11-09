@@ -96,7 +96,7 @@ The user gives free-form instructions and does NOT need to learn cusic commands.
 3. Import the DAWproject through project_import. Inspect audio assets and track notes.
 4. For arrangement edits, create bounded track patches based on HEAD.
    Keep existing live guitar/bass recordings untouched; new MIDI is an arrangement suggestion.
-5. Before mixing, use mix_analyze_stems to inspect existing WAVs. Report proposed EQ/comp/pan
+5. Before mixing, prefer mix_analyze_spectral (NumPy/SciPy FFT) for\n   spectrum overlap, spectral centroid and stereo correlation. If Python is not\n   configured, fall back to mix_analyze_stems for basic Go-only WAV statistics.\n   Report proposed EQ/comp/pan
    settings, distinguishing measured findings from creative recommendations.
    cusic cannot directly change the running Cubase app. Use mix_plan then mix_apply\n   to create a NEW DAWproject with generic EQ, fader and pan values when approved.
 6. NEVER delete or overwrite any existing .svp, .vsqx, .ppsf or .cpr file.

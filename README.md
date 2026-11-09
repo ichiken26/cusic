@@ -36,12 +36,40 @@ cusic MCPには `project_inventory`、`project_status`、`track_inspect`、`proj
 詳しい利用手順・制約は [docs/agent-first.md](docs/agent-first.md) を参照。
 
 ---
+### NumPy/SciPyによる波形・FFT解析（追加）
+
+波形の高度な計算は **Python + NumPy/SciPy** のオフラインワーカーで行う。GoはMCP・SQLite・ファイル管理、TypeScriptはテトSV2のスクリプト担当。Goだけで行う簡易解析とは別に、NumPyのrFFTを使って音響解析する。
+
+初回だけPython 3.10以上を用意して、cusicリポジトリで依存ライブラリをインストールする（Windows PowerShell）。
+
+~~~powershell
+py -m pip install -r .\audio\requirements.txt
+~~~
+
+Pythonを複数インストールしている場合は、環境変数 CUSIC_PYTHON に使用する python.exe のパスを設定する。Python依存は任意で、入れていなくても他のGo製コマンドは動作する。
+
+登録済みWAVステムなら次のコマンドで測定可能。
+
+~~~powershell
+cusic suno import .\stems
+cusic analyze --max-windows 512
+~~~
+
+通常はClaude CodeやCodexに「6トラックの周波数をNumPyで解析して、ギター2本とミク・テトが干渉しそうな帯域を探して」と頼む。MCPツール mix_analyze_spectral が自動で呼び出せる。
+
+返す数値：8帯域のRMS dBFS、周波数重心・95%ロールオフ、代表的なピーク周波数、ステレオ相関、パート間の帯域スペクトル類似度、サンプル窓のピーク・RMS。ファイルは読み込み専用で、録音を加工・上書きしない。
+
+**注意：**長い音源は均等に抽出したFFT窓による近似。LUFS・真のピーク・聴覚上のマスキングを直接測る機能ではない。EQの提案はCubaseで試聴して評価する。
+
+---
+
 ## できること
 
 | 入出力 | コマンド | 対応範囲 |
 |---|---|---|
 | MIDI | `cusic import song.mid` / `cusic export --format midi` | SMF 0/1、固定テンポ・拍子の音符 |
 | TuxGuitar | `cusic import song.tg` | **2.x形式（ZIP + content.xml）**の音符・チューニング・簡易タイ |
+| NumPy FFT | cusic analyze / MCP mix_analyze_spectral | rFFT、8帯域RMS、ステレオ相関、複数ステムの帯域類似度 |
 | Suno WAV | `cusic suno import ./stems` | ステムWAVの長さ、ピーク、RMS、SHA-256、SQLite登録 |
 | Suno分離 | `cusic suno separate --out ./stems mix.wav` | 別途インストールした **Demucs** を実行 |
 | Suno→MIDI | `cusic suno transcribe --out ./midi stem.wav` | 別途インストールした **Basic Pitch** を実行（推定精度は音源依存） |

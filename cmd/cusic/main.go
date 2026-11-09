@@ -13,6 +13,8 @@ import (
  "strings"
 
  "github.com/ichiken26/cusic/internal/agent"
+ "github.com/ichiken26/cusic/internal/analysis"
+ "context"
  "github.com/ichiken26/cusic/internal/midifile"
  "github.com/ichiken26/cusic/internal/dawproject"
  "github.com/ichiken26/cusic/internal/tuxguitar"
@@ -69,6 +71,7 @@ func run(args []string)error{
  case "import":return importSong(s,args[1:])
  case "suno":return suno(s,args[1:])
  case "audio":return audioCommand(s,args[1:])
+ case "analyze":return analyzeSpectral(s,args[1:])
  case "sync":return syncCommand(s,args[1:])
  case "export":return export(s,args[1:])
  case "validate":
@@ -96,6 +99,7 @@ func help()error{
  fmt.Print("  cusic import demo.tg | demo.dawproject | demo.mid\n  cusic suno import ./stems\n  cusic suno separate --out ./stems song.wav\n  cusic suno transcribe --out ./midi stem.wav\n  cusic audio list\n")
  fmt.Print("  cusic export --format vsqx --track Miku --template piapro.vsqx --out miku.vsqx\n  cusic export --format dawproject --out cubase.dawproject\n")
  fmt.Print("  cusic sync plan --from cubase-export.dawproject\n  cusic sync pull --from cubase-export.dawproject --base-revision 12\n")
+ fmt.Print("  cusic analyze [--max-windows 512] # NumPy/SciPy FFT analysis of imported WAV stems\n")
  fmt.Print("  cusic validate\n\nUse CUSIC_PROJECT=/path/to/song to target a different project.\n")
  return nil
 }
@@ -233,6 +237,26 @@ func suno(s *store.Store,args []string)error{
  }
  return errors.New("usage: cusic suno import|separate|transcribe")
 }
+
+// analyzeSpectral is an opt-in NumPy/SciPy worker (not required for other Go commands).
+// Audio must have been added to the current song first; original WAV is untouched.
+func analyzeSpectral(s *store.Store,args []string)error{
+ f:=flag.NewFlagSet("analyze",flag.ContinueOnError)
+ windows:=f.Int("max-windows",512,"sampled FFT windows per stem (1..2048)")
+ if err:=f.Parse(args);err!=nil{return err}
+ if f.NArg()!=0{return errors.New("usage: cusic analyze [--max-windows N] (first import WAVs using cusic suno import DIR)")}
+ assets,err:=s.Assets();if err!=nil{return err}
+ if len(assets)==0{return errors.New("no registered WAVs; run cusic suno import STEM_DIRECTORY")}
+ files:=[]analysis.File{}
+ for _,a:=range assets{
+  path,e:=s.AssetAbsolute(a);if e!=nil{return e}
+  files=append(files,analysis.File{Name:a.Name,Path:path})
+ }
+ report,err:=analysis.Analyze(context.Background(),files,*windows)
+ if err!=nil{return err}
+ return printJSON(report)
+}
+
 func audioCommand(s *store.Store,args []string)error{
  if len(args)!=1||args[0]!="list"{return errors.New("usage: cusic audio list")}
  a,err:=s.Assets();if err!=nil{return err};return printJSON(a)
