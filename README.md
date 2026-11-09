@@ -42,7 +42,7 @@ cusic MCPには `project_inventory`、`project_status`、`track_inspect`、`proj
 
 **Windowsは `install.cmd` でPython 3.12・NumPy・SciPyをまとめて自動構築する。** 既存のPythonやpip、Docker Desktopは不要。Python本体と依存パッケージは `.cusic-tools/` 内の仮想環境へ隔離され、Windows全体のPython環境は変更しない。
 
-cusicのGoバイナリは実行ファイルの位置から `.cusic-tools/venv/Scripts/python.exe` を自動検出して利用する。標準以外のPythonを使いたい場合のみ `CUSIC_PYTHON` で上書き可能。macOS/LinuxでのPython依存は現状手動導入。
+cusicのGoバイナリは実行ファイルの位置から専用のPython（Windowsは `.cusic-tools/venv/Scripts/python.exe`、macOSは `.cusic-tools/venv/bin/python`）を自動検出して利用する。標準以外のPythonを使いたい場合のみ `CUSIC_PYTHON` で上書き可能。LinuxでのPython依存は現状手動導入。
 
 登録済みWAVステムなら次のコマンドで測定可能。
 
@@ -101,7 +101,19 @@ cd cusic
 
 Windowsでセットアップが完了したら、手動の `pip install`、`go install`、`rubberband` インストールは不要。Pythonのパッケージに更新があった場合も `install.cmd` を再実行すれば専用の仮想環境に同期する。
 
-**macOS / Linux**
+**macOS（Apple Silicon / Intel）**
+
+~~~bash
+git clone https://github.com/ichiken26/cusic.git
+cd cusic
+bash ./install.sh
+~~~
+
+macOSでも **Go 1.26.10・uv 0.13.7・Python 3.12・NumPy/SciPy・Rubber Band CLI** をすべて自動でインストールする。Homebrew、Docker Desktop、グローバルなGo/Pythonインストールは不要。Goとuvの公式アーカイブをSHA-256検証し、Rubber Bandの公式macOS配布物も検証して、cusicリポジトリ内の `.cusic-tools/` と `bin/` に配置する。二重実行時は既存の専用ツールを再利用して依存パッケージを同期する。
+
+`~/.zshrc` と `~/.bash_profile` に重複しないPATH設定を追加。ターミナル再起動後、どの曲フォルダからでも `cusic help` を実行できる。実行ファイルから専用Pythonを自動検出するため、仮想環境のactivateも不要。
+
+**Linux（現時点ではGo等が必要）**
 
 ~~~bash
 git clone https://github.com/ichiken26/cusic.git
