@@ -85,6 +85,27 @@ jobs:
           go-version-file: 'go.mod'
           cache: false
       - run: go build -mod=readonly -o cusic${{ matrix.ext }} ./cmd/cusic
+      - name: Verify Windows installer registers user PATH exactly once
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $repo = (Get-Location).Path
+          $installer = Join-Path $repo 'install.cmd'
+          $expected = Join-Path $repo 'bin'
+          Push-Location $env:RUNNER_TEMP
+          try {
+            & $installer
+            if ($LASTEXITCODE -ne 0) { throw "installer failed" }
+            & $installer
+            if ($LASTEXITCODE -ne 0) { throw "installer is not idempotent" }
+          } finally {
+            Pop-Location
+          }
+          $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+          $matches = @($userPath -split ';' | Where-Object { $_.TrimEnd([char[]]@('\', '/')) -ieq $expected })
+          if ($matches.Count -ne 1) { throw "expected exactly one registered bin PATH, got $($matches.Count)" }
+          & (Join-Path $expected 'cusic.exe') help
+          if ($LASTEXITCODE -ne 0) { throw "installed executable did not start" }
       - uses: actions/upload-artifact@v4
         with:
           name: cusic-${{ matrix.name }}
