@@ -213,7 +213,9 @@ function Install-PythonEnvironment {
     Write-Host 'Synchronizing NumPy/SciPy in cusic private virtual environment...'
     & $UvExe pip install --python $venvPython -r $requirements
     if ($LASTEXITCODE -ne 0) { throw "uv pip install failed (exit code $LASTEXITCODE)" }
-    & $venvPython -c 'import numpy, scipy; print("Python NumPy/SciPy ready:", numpy.__version__, scipy.__version__)'
+    # Avoid nested string quotes: Windows PowerShell 5.1 strips some quotes
+    # when forwarding native arguments to python.exe.
+    & $venvPython -c 'import numpy, scipy'
     if ($LASTEXITCODE -ne 0) { throw 'NumPy/SciPy verification failed' }
 }
 
