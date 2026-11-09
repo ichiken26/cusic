@@ -61,9 +61,9 @@ type trackRef struct{ Track string `json:"track" jsonschema:"track name or ID"` 
 type inspectInput struct{ Track string `json:"track"`; FromBar int `json:"fromBar"`; ToBar int `json:"toBar"` }
 type initInput struct{
  Name string `json:"name"`
- Tempo int `json:"tempo"`
- MeterNum int `json:"meterNum"`
- MeterDen int `json:"meterDen"`
+ Tempo int `json:"tempo,omitempty"`
+ MeterNum int `json:"meterNum,omitempty"`
+ MeterDen int `json:"meterDen,omitempty"`
 }
 type newTrack struct{ Name string `json:"name"`; Kind string `json:"kind"`; Singer string `json:"singer"` }
 type importInput struct{ File string `json:"file"` }
@@ -79,9 +79,9 @@ type revisionInput struct{ Revision int64 `json:"revision"` }
 type vsqxEditsInput struct{ Source string `json:"source"`; Out string `json:"out"`; Changes []vsqx.NoteEdit `json:"changes"` }
 type audioInput struct{ File string `json:"file"`; Name string `json:"name"` }
 type spectralInput struct{ Names []string `json:"names"`; MaxWindows int `json:"maxWindows"` }
-type tempoInput struct{ Source string `json:"source"` }
+type tempoInput struct{ Source string `json:"source,omitempty"` }
 type tempoConfirmInput struct{ BPM int `json:"bpm"`; Confirm bool `json:"confirm"` }
-type tempoRenderInput struct{ Out string `json:"out"`; Source string `json:"source"`; Mode string `json:"mode"`; SourceBPM float64 `json:"sourceBpm"`; Confirm bool `json:"confirm"` }
+type tempoRenderInput struct{ Out string `json:"out"`; Source string `json:"source,omitempty"`; Mode string `json:"mode,omitempty"`; SourceBPM float64 `json:"sourceBpm,omitempty"`; Confirm bool `json:"confirm"` }
 type vocalSourceInput struct{ Source string `json:"source"` }
 type exportInput struct{
  Format string `json:"format"`
