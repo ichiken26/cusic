@@ -127,7 +127,7 @@ func renderTempoStems(s *store.Store,out,mode string,from,target float64,sourceN
         output:=filepath.Join(tempDir,fmt.Sprintf("%02d-aligned.wav",index+1))
         if mode=="uniform" && math.Abs(ratio-1)<1e-9 {
             if e=copyUnchanged(input,output);e!=nil{return e}
-            fmt.Printf("Copied unchanged %s -> %s (already at target BPM)\\n",a.Name,filepath.Base(output))
+            fmt.Printf("Copied unchanged %s -> %s (already at target BPM)\n",a.Name,filepath.Base(output))
             continue
         }
         args:=[]string{"--fine","--time",fmt.Sprintf("%.12f",ratio)}
