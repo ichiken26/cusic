@@ -12,6 +12,7 @@ import (
     "os/exec"
     "path/filepath"
     "strings"
+    "unicode"
 
     "github.com/ichiken26/cusic/internal/store"
     "github.com/ichiken26/cusic/internal/tempo"
@@ -124,7 +125,7 @@ func renderTempoStems(s *store.Store,out,mode string,from,target float64,sourceN
     if err=os.WriteFile(filepath.Join(tempDir,"tempo-report.json"),append(b,'\n'),0644);err!=nil{return err}
     for index,a:=range assets {
         input,e:=s.AssetAbsolute(a);if e!=nil{return e}
-        output:=filepath.Join(tempDir,fmt.Sprintf("%02d-aligned.wav",index+1))
+        output:=filepath.Join(tempDir,fmt.Sprintf("%02d-%s-aligned.wav",index+1,safeStemName(a.Name)))
         if mode=="uniform" && math.Abs(ratio-1)<1e-9 {
             if e=copyUnchanged(input,output);e!=nil{return e}
             fmt.Printf("Copied unchanged %s -> %s (already at target BPM)\n",a.Name,filepath.Base(output))
@@ -189,4 +190,20 @@ func copyUnchanged(source,destination string)error{
     closeErr:=output.Close()
     if copyErr!=nil{return copyErr}
     return closeErr
+}
+
+func safeStemName(name string)string{
+    var b strings.Builder
+    for _,r:=range name{
+        if unicode.IsLetter(r)||unicode.IsDigit(r)||r=='_'||r=='-'||r==' '{
+            b.WriteRune(r)
+        }else{
+            b.WriteRune('_')
+        }
+    }
+    cleaned:=strings.Trim(b.String()," _.-")
+    if cleaned==""{return "stem"}
+    runes:=[]rune(cleaned)
+    if len(runes)>48{cleaned=string(runes[:48])}
+    return cleaned
 }
