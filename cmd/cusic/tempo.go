@@ -91,6 +91,9 @@ func tempoCommand(s *store.Store,args []string)error {
         report,asset,err:=analyzeTempo(s,*source);if err!=nil{return err}
         from:=report.EstimatedBPM
         if *sourceBPM!=0 {from=*sourceBPM}
+        if *sourceBPM==0 && (from/float64(settings.Tempo)<0.8 || from/float64(settings.Tempo)>1.25) {
+            return errors.New("estimated BPM is far from target (possibly half/double-time); verify the source BPM and use --source-bpm in uniform mode")
+        }
         if report.Confidence<0.20 && *sourceBPM==0{return errors.New("tempo evidence too weak; confirm a source BPM and pass --source-bpm")}
         if *mode=="adaptive" && (report.Confidence<0.45 || report.BeatCoverage<0.35 || len(report.BeatTimesSeconds)<16){
             return errors.New("adaptive beat alignment is too uncertain; use uniform mode or improve the drum stem")
