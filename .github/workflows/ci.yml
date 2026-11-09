@@ -134,13 +134,27 @@ jobs:
           }
           & (Join-Path $expected 'cusic.exe') help
           if ($LASTEXITCODE -ne 0) { throw "installed executable did not start" }
-      - name: Discover official Rubber Band macOS digest and archive layout
+      - name: Verify isolated macOS installer (Apple Silicon / Intel)
         if: startsWith(matrix.os, 'macos')
         shell: bash
         run: |
-          curl -fsSL --retry 3 https://breakfastquay.com/files/releases/rubberband-4.0.0-gpl-executable-macos.tar.bz2 -o "${RUNNER_TEMP}/rubberband-macos.tbz"
-          shasum -a 256 "${RUNNER_TEMP}/rubberband-macos.tbz"
-          tar -tjf "${RUNNER_TEMP}/rubberband-macos.tbz" | head -30
+          bash -n ./install.sh
+          repo="$PWD"
+          cd "$RUNNER_TEMP"
+          bash "$repo/install.sh"
+          bash "$repo/install.sh"
+          test -x "$repo/.cusic-tools/go/bin/go"
+          test -x "$repo/.cusic-tools/uv/uv"
+          test -x "$repo/.cusic-tools/venv/bin/python"
+          "$repo/.cusic-tools/venv/bin/python" -c 'import numpy, scipy; print(numpy.__version__, scipy.__version__)'
+          if test -x "$repo/bin/rubberband"; then
+            file "$repo/bin/rubberband"
+            "$repo/bin/rubberband" --help >/dev/null 2>&1 || true
+          else
+            command -v rubberband
+          fi
+          "$repo/bin/cusic" help
+          grep -F 'cusic CLI' "$HOME/.zshrc"
       - uses: actions/upload-artifact@v4
         with:
           name: cusic-${{ matrix.name }}
