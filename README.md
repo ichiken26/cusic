@@ -85,7 +85,21 @@ CubaseではDAWprojectをインポート/エクスポートして受け渡す。
 
 ## インストール
 
-Go 1.23+。SynthVのJSを自分でビルドする場合のみNode.js 22+。
+Goはリポジトリの `go.mod` に指定されたバージョンが必要。SynthVのJSを自分でビルドする場合のみNode.js 22+。
+
+**Windows（推奨・最初の1回だけ）**
+
+~~~cmd
+git clone https://github.com/ichiken26/cusic.git
+cd cusic
+.\install.cmd
+~~~
+
+`install.cmd` がGoで `bin\cusic.exe` をビルドし、**現在のWindowsユーザーのPATH**に絶対パスで `bin` を永続登録する。管理者権限も `$env:Path += ...` も不要。再実行してもPATHに同じ項目を追加しない。
+
+**インストール後にターミナルを再起動**（VS Codeの統合ターミナルならVS Code自体を再起動）してから、どの曲フォルダでも `cusic help` を実行できる。現在開いている別プロセスのPATHまでは変更できない。リポジトリのフォルダを移動した場合は、移動後に `install.cmd` を再実行してね。
+
+**macOS / Linux**
 
 ~~~bash
 git clone https://github.com/ichiken26/cusic.git
