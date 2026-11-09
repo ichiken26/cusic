@@ -1,5 +1,21 @@
 # cusic agent-first integration
 
+## Sunoステムから新規作成（BPM指定不要）
+
+Cubaseにまだ取り込んでいないSunoのステムだけでも始められます。
+
+```bash
+cusic init --name "MySong"
+cusic suno import ./stems
+cusic tempo analyze
+cusic tempo set --bpm 184
+cusic setup .
+```
+
+テンポ未指定で初期化すると0（未確定）を保存し、偽の120 BPMを採用しません。ドラムステムから推定候補を表示しますが、正しいBPMの判断と確定は人間が行います。音声を実際に184 BPMに合わせたいときは、確認後に `cusic tempo render --out ./aligned-v1 --confirm` を使用。Rubber Band CLIを別途インストールする必要があります。
+
+MCPの `tempo_analyze`、`tempo_confirm`、`tempo_render` も使えます。後二者は明示承認を要求します。曲中の拍ごとの調整（adaptive）は実験機能で、音質と小節位置の検証が必須です。
+
 ## 最初の1回だけ
 
 1. Cubaseで元の曲を開き、**DAWprojectを1本**エクスポートして曲フォルダに置く。
