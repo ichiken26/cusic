@@ -33,7 +33,7 @@ func run(args []string)error{
  case "setup":return setup(args[1:])
  case "init":
   f:=flag.NewFlagSet("init",flag.ContinueOnError)
-  name:=f.String("name","Untitled","project name");tempo:=f.Int("tempo",120,"BPM");meter:=f.String("meter","4/4","time signature")
+  name:=f.String("name","Untitled","project name");tempo:=f.Int("tempo",0,"BPM (optional; 0=detect after Suno import)");meter:=f.String("meter","4/4","time signature")
   if err:=f.Parse(args[1:]);err!=nil{return err}
   directory:=".";if f.NArg()>0{directory=f.Arg(0)}
   var n,d int;if _,err:=fmt.Sscanf(*meter,"%d/%d",&n,&d);err!=nil{return err}
@@ -70,6 +70,7 @@ func run(args []string)error{
   fmt.Printf("Reverted revision %d (new HEAD %d)\n",id,rev);return nil
  case "import":return importSong(s,args[1:])
  case "suno":return suno(s,args[1:])
+ case "tempo":return tempoCommand(s,args[1:])
  case "audio":return audioCommand(s,args[1:])
  case "analyze":return analyzeSpectral(s,args[1:])
  case "sync":return syncCommand(s,args[1:])
@@ -89,14 +90,14 @@ func run(args []string)error{
 func help()error{
  fmt.Print("cusic — local-first music agent CLI\n\n")
  fmt.Print("  cusic setup [PROJECT_DIR]  # One-time Claude/Codex MCP setup\n  cusic mcp                  # stdio MCP server\n")
- fmt.Print("  cusic init --name Demo --tempo 168 [DIR]\n")
+ fmt.Print("  cusic init --name Demo [--tempo 168] [DIR]  # omitted tempo is pending detection\n")
  fmt.Print("  cusic status\n  cusic track add --name Bass [--kind instrument|drums|vocal] [--singer teto_sv2]\n")
  fmt.Print("  cusic track list\n  cusic note add --track Bass --tick 0 --duration 480 --pitch 40 --velocity 100\n")
  fmt.Print("  cusic inspect --track Bass [--bars 17:24]\n  cusic patch apply ./patch.json\n")
  fmt.Print("  cusic log [-n 20]\n  cusic diff REV\n  cusic revert REV  (HEAD only)\n")
  fmt.Print("  cusic import song.mid\n  cusic export --format midi --out song.mid\n")
  fmt.Print("  cusic export --format synthv --track Teto --bars 1:8 --out teto.json\n")
- fmt.Print("  cusic import demo.tg | demo.dawproject | demo.mid\n  cusic suno import ./stems\n  cusic suno separate --out ./stems song.wav\n  cusic suno transcribe --out ./midi stem.wav\n  cusic audio list\n")
+ fmt.Print("  cusic import demo.tg | demo.dawproject | demo.mid\n  cusic suno import ./stems\n  cusic suno separate --out ./stems song.wav\n  cusic suno transcribe --out ./midi stem.wav\n  cusic audio list\n  cusic tempo analyze [--source Drums]\n  cusic tempo set --bpm 184\n  cusic tempo render --out ./aligned --confirm [--mode uniform|adaptive]\n")
  fmt.Print("  cusic export --format vsqx --track Miku --template piapro.vsqx --out miku.vsqx\n  cusic export --format dawproject --out cubase.dawproject\n")
  fmt.Print("  cusic sync plan --from cubase-export.dawproject\n  cusic sync pull --from cubase-export.dawproject --base-revision 12\n")
  fmt.Print("  cusic analyze [--max-windows 512] # NumPy/SciPy FFT analysis of imported WAV stems\n")
@@ -212,6 +213,15 @@ func suno(s *store.Store,args []string)error{
   })
   if err!=nil{return err}
   if found==0{return errors.New("no WAV stems under folder; export WAVs from Suno Studio first")}
+  cfg,e:=s.Settings();if e!=nil{return e}
+  if cfg.Tempo==0 {
+   report,asset,e:=analyzeTempo(s,"")
+   if e!=nil {
+    fmt.Fprintf(os.Stderr,"Tempo is pending: automatic analysis skipped (%v). Use cusic tempo analyze [--source NAME] or cusic tempo set --bpm N.\n",e)
+   }else{
+    if e=printJSON(map[string]any{"tempoSuggestion":report,"source":asset.Name,"confirmation":"Review candidates then run cusic tempo set --bpm N; originals are unchanged"});e!=nil{return e}
+   }
+  }
   return nil
  case "separate","transcribe":
   f:=flag.NewFlagSet("suno "+args[0],flag.ContinueOnError)
@@ -297,6 +307,7 @@ func export(s *store.Store,args []string)error{
  if err:=f.Parse(args);err!=nil{return err}
  if *out==""{return errors.New("--out required")}
  settings,err:=s.Settings();if err!=nil{return err}
+ if settings.Tempo==0{return errors.New("BPM not confirmed: run cusic tempo analyze then cusic tempo set --bpm N before exporting")}
  switch *format{
  case "midi":
   ts,err:=s.Tracks();if err!=nil{return err}

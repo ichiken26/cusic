@@ -48,7 +48,7 @@ func setup(args []string)error{
    s.Close();if e!=nil{return e}
    fmt.Println("Initialized from "+candidates[0]+" (note tracks and embedded WAV imported)")
   }else{
-   fmt.Fprintln(os.Stderr,"No unique DAWproject found. MCP will ask for a one-time Cubase DAWproject export and tempo/meter before initializing the score.")
+   fmt.Fprintln(os.Stderr,"No unique DAWproject found. MCP can initialize an audio-first project with pending tempo, import Suno stems, then propose BPM from the drums.")
   }
  }else if err!=nil{return err}
  // Claude Code project MCP. Merge existing config, do not clobber other servers.

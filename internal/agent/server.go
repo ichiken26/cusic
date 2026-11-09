@@ -4,6 +4,9 @@ package agent
 
 import (
  "context"
+ "bytes"
+ "os/exec"
+ "time"
  "crypto/sha256"
  "encoding/hex"
  "io"
@@ -20,6 +23,7 @@ import (
  "github.com/ichiken26/cusic/internal/midifile"
  "github.com/ichiken26/cusic/internal/mix"
  "github.com/ichiken26/cusic/internal/store"
+ "github.com/ichiken26/cusic/internal/tempo"
  "github.com/ichiken26/cusic/internal/tuxguitar"
  "github.com/ichiken26/cusic/internal/vsqx"
  "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -57,9 +61,9 @@ type trackRef struct{ Track string `json:"track" jsonschema:"track name or ID"` 
 type inspectInput struct{ Track string `json:"track"`; FromBar int `json:"fromBar"`; ToBar int `json:"toBar"` }
 type initInput struct{
  Name string `json:"name"`
- Tempo int `json:"tempo"`
- MeterNum int `json:"meterNum"`
- MeterDen int `json:"meterDen"`
+ Tempo int `json:"tempo,omitempty"`
+ MeterNum int `json:"meterNum,omitempty"`
+ MeterDen int `json:"meterDen,omitempty"`
 }
 type newTrack struct{ Name string `json:"name"`; Kind string `json:"kind"`; Singer string `json:"singer"` }
 type importInput struct{ File string `json:"file"` }
@@ -75,6 +79,9 @@ type revisionInput struct{ Revision int64 `json:"revision"` }
 type vsqxEditsInput struct{ Source string `json:"source"`; Out string `json:"out"`; Changes []vsqx.NoteEdit `json:"changes"` }
 type audioInput struct{ File string `json:"file"`; Name string `json:"name"` }
 type spectralInput struct{ Names []string `json:"names"`; MaxWindows int `json:"maxWindows"` }
+type tempoInput struct{ Source string `json:"source,omitempty"` }
+type tempoConfirmInput struct{ BPM int `json:"bpm"`; Confirm bool `json:"confirm"` }
+type tempoRenderInput struct{ Out string `json:"out"`; Source string `json:"source,omitempty"`; Mode string `json:"mode,omitempty"`; SourceBPM float64 `json:"sourceBpm,omitempty"`; Confirm bool `json:"confirm"` }
 type vocalSourceInput struct{ Source string `json:"source"` }
 type exportInput struct{
  Format string `json:"format"`
@@ -99,8 +106,9 @@ func NewServer()*mcp.Server{
   if err!=nil{return nil,response{},err}
   return output(map[string]any{"root":root,"files":files,"hint":"A .cpr is not read directly. Export a .dawproject from Cubase once; then use project_import. Vocal originals .vsqx/.svp should be backed up before editing."})
  })
- mcp.AddTool(server,&mcp.Tool{Name:"project_initialize",Description:"Create a new per-song SQLite project in this directory. Call only when no project exists, with confirmed tempo and meter."},func(ctx context.Context,req *mcp.CallToolRequest,in initInput)(*mcp.CallToolResult,response,error){
-  err:=store.Init(projectDir(),store.Settings{Name:in.Name,Tempo:in.Tempo,MeterNum:in.MeterNum,MeterDen:in.MeterDen})
+ mcp.AddTool(server,&mcp.Tool{Name:"project_initialize",Description:"Create a new song project. Tempo is optional (0 means pending automatic estimation after importing drums). Default meter is 4/4."},func(ctx context.Context,req *mcp.CallToolRequest,in initInput)(*mcp.CallToolResult,response,error){
+  meterNum,meterDen:=in.MeterNum,in.MeterDen;if meterNum==0&&meterDen==0{meterNum,meterDen=4,4}
+   err:=store.Init(projectDir(),store.Settings{Name:in.Name,Tempo:in.Tempo,MeterNum:meterNum,MeterDen:meterDen})
   if err!=nil{return nil,response{},err};return output(map[string]any{"initialized":true,"directory":projectDir()})
  })
  mcp.AddTool(server,&mcp.Tool{Name:"project_status",Description:"Read project tempo, time signature, SQLite HEAD revision and available tracks. Run first before any edits."},func(ctx context.Context,req *mcp.CallToolRequest,in empty)(*mcp.CallToolResult,response,error){
@@ -111,6 +119,41 @@ func NewServer()*mcp.Server{
    head:=int64(0);if len(revs)>0{head=revs[0].ID}
    return map[string]any{"project":cfg,"tracks":tracks,"head":head},nil
   })
+ })
+ mcp.AddTool(server,&mcp.Tool{Name:"tempo_analyze",Description:"Read-only onset analysis of registered drum WAV. Returns BPM candidates and confidence. Never alters original WAV or project tempo."},func(ctx context.Context,req *mcp.CallToolRequest,in tempoInput)(*mcp.CallToolResult,response,error){
+   return withStore(func(s *store.Store)(any,error){
+     assets,err:=s.Assets();if err!=nil{return nil,err}
+     var asset *store.Asset
+     for i:=range assets {
+       if in.Source!="" && (strings.EqualFold(in.Source,assets[i].Name)||strings.EqualFold(in.Source,assets[i].ID)){asset=&assets[i];break}
+       if in.Source=="" && (strings.Contains(strings.ToLower(assets[i].Name),"drum")||strings.Contains(strings.ToLower(assets[i].Name),"percussion")){asset=&assets[i];break}
+     }
+     if asset==nil && in.Source=="" && len(assets)==1{asset=&assets[0]}
+     if asset==nil{return nil,errors.New("select a drum WAV by name (see audio_list)")}
+     path,err:=s.AssetAbsolute(*asset);if err!=nil{return nil,err}
+     report,err:=tempo.Analyze(ctx,path);if err!=nil{return nil,err}
+     return map[string]any{"source":asset.Name,"report":report,"confirmation":"Candidate only. Ask user to confirm target BPM, then tempo_confirm."},nil
+   })
+ })
+ mcp.AddTool(server,&mcp.Tool{Name:"tempo_confirm",Description:"Confirm BPM on pending-tempo project; updates SQLite revision only, never WAVs. Requires explicit approval."},func(ctx context.Context,req *mcp.CallToolRequest,in tempoConfirmInput)(*mcp.CallToolResult,response,error){
+   if !in.Confirm{return nil,response{},errors.New("tempo_confirm requires explicit user approval")}
+   return withStore(func(s *store.Store)(any,error){rev,err:=s.SetInitialTempo(in.BPM);return map[string]any{"bpm":in.BPM,"revision":rev},err})
+ })
+ mcp.AddTool(server,&mcp.Tool{Name:"tempo_render",Description:"Render NEW synchronized stems using Rubber Band. Uniform by default; adaptive beat mapping experimental. Requires approval, never edits originals."},func(ctx context.Context,req *mcp.CallToolRequest,in tempoRenderInput)(*mcp.CallToolResult,response,error){
+   if !in.Confirm{return nil,response{},errors.New("tempo_render requires explicit user approval")}
+   out,err:=outputPath(in.Out);if err!=nil{return nil,response{},err}
+   exe,err:=os.Executable();if err!=nil{return nil,response{},err}
+   mode:=in.Mode;if mode==""{mode="uniform"}
+   args:=[]string{"tempo","render","--out",out,"--mode",mode,"--confirm"}
+   if in.Source!=""{args=append(args,"--source",in.Source)}
+   if in.SourceBPM!=0{args=append(args,"--source-bpm",fmt.Sprint(in.SourceBPM))}
+   limit,cancel:=context.WithTimeout(ctx,15*time.Minute);defer cancel()
+   cmd:=exec.CommandContext(limit,exe,args...)
+   cmd.Dir=projectDir()
+   var stdout,stderr bytes.Buffer
+   cmd.Stdout=&stdout;cmd.Stderr=&stderr
+   if err=cmd.Run();err!=nil{return nil,response{},fmt.Errorf("tempo render failed: %w: %s",err,stderr.String())}
+   return output(map[string]any{"directory":out,"result":stdout.String()})
  })
  mcp.AddTool(server,&mcp.Tool{Name:"track_create",Description:"Add an instrument, drum or vocal track. Existing tracks remain unchanged."},func(ctx context.Context,req *mcp.CallToolRequest,in newTrack)(*mcp.CallToolResult,response,error){
   return withStore(func(s *store.Store)(any,error){t,r,e:=s.AddTrack(in.Name,in.Kind,in.Singer);return map[string]any{"track":t,"revision":r},e})
@@ -205,6 +248,7 @@ func NewServer()*mcp.Server{
   return withStore(func(s *store.Store)(any,error){
    file,err:=outputPath(in.Out);if err!=nil{return nil,err}
    cfg,err:=s.Settings();if err!=nil{return nil,err}
+    if cfg.Tempo==0{return nil,errors.New("BPM not confirmed: use tempo_analyze then tempo_confirm before exporting")}
    tracks,err:=s.Tracks();if err!=nil{return nil,err}
    ns:=map[string][]store.Note{};for _,t:=range tracks{n,e:=s.Notes(t.ID,0,0);if e!=nil{return nil,e};ns[t.ID]=n}
    if err:=os.MkdirAll(filepath.Dir(file),0755);err!=nil{return nil,err}

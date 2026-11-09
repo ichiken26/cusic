@@ -84,7 +84,7 @@ func FindRoot(start string)(string,error){
 }
 func Init(dir string, s Settings) error {
  if s.Name=="" {return errors.New("name required")}
- if s.Tempo<20 || s.Tempo>400 {return errors.New("tempo must be 20..400")}
+ if s.Tempo!=0 && (s.Tempo<20 || s.Tempo>400) {return errors.New("tempo must be 20..400, or 0 while awaiting detection")}
  if s.MeterNum<1 || s.MeterNum>32 || (s.MeterDen!=2 && s.MeterDen!=4 && s.MeterDen!=8 && s.MeterDen!=16) {return errors.New("unsupported meter")}
  if _,err:=os.Stat(DBPath(dir));err==nil{return errors.New("project already exists")}
  if err:=os.MkdirAll(filepath.Dir(DBPath(dir)),0755);err!=nil{return err}
