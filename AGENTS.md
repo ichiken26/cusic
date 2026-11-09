@@ -22,3 +22,6 @@ Read `docs/agent-first.md` for project-scoped MCP setup and safe vocal/mix workf
 For an existing mixed song, use the **original Cubase-exported DAWproject** as the source of `mix_plan` / `mix_apply`, not a new cusic-generated session (audio region offsets may otherwise be lost).
 Always ask approval before `mix_apply`; it creates a NEW .dawproject file. Never overwrite .cpr, source recordings, .svp, .vsqx or .ppsf.
 Backup vocal source with `vocal_backup_source`. Use `vocal_vsqx_edit_existing` for safe existing VSQX note edits, or the TypeScript/Zod `synthv/src/safe.ts` script for existing SynthV notes; NEVER use destructive note replacement on tuned vocals.
+
+## NumPy/SciPy spectral worker
+Prefer the read-only MCP mix_analyze_spectral tool for quantitative frequency-domain mixing research. It uses NumPy rFFT and SciPy WAV input. When Python dependencies are missing, report the installation command (py -m pip install -r audio/requirements.txt) and fall back to mix_analyze_stems for Go-only approximate statistics. The sampled FFT results are not integrated LUFS, true peak or definitive auditory masking. Never alter the recording during analysis.

@@ -45,3 +45,7 @@ SV2の安全編集は`npm install && npm run build`後、`node dist/host/prepare
 ## 今後の課題
 
 本当の完全自然文オペレーションには、Cubase側のエクスポート/インポートを自動操作する安全なブリッジ、プラグイン固有パラメータの取り扱い、既存SVPの非破壊パッチのさらなる拡張、実機互換性テストが必要。MIDI Remote APIだけでファイルの自動書き出しが保証されるわけではない。
+
+## Python/NumPy FFT解析
+
+本体・MCP・SQLiteはGo。テトだけTypeScript＋Zod。音響解析はPython・NumPy・SciPyで行う。1回だけ py -m pip install -r audio/requirements.txt を実行。AIはMCPの mix_analyze_spectral を呼び出し、登録WAVのFFT、8帯域RMS、周波数重心、スペクトル類似度、ステレオ相関を得る。長尺音源はサンプル窓からの推定値で、LUFSや心理音響的マスキングそのものではない。Go製の簡易mix_analyze_stemsも引き続き利用可能。
