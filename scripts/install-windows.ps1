@@ -42,7 +42,17 @@ function Install-RubberBand {
         Write-Host "Downloading Rubber Band $version from the official website..."
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
         Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing -ErrorAction Stop
-        $actualHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+        # Windows PowerShell may run with reduced cmdlet availability.
+        # Compute SHA-256 via .NET rather than relying on Get-FileHash.
+        $sha = [Security.Cryptography.SHA256]::Create()
+        $stream = [IO.File]::OpenRead($archive)
+        try {
+            $hashBytes = $sha.ComputeHash($stream)
+            $actualHash = ([BitConverter]::ToString($hashBytes)).Replace('-', '')
+        } finally {
+            $stream.Dispose()
+            $sha.Dispose()
+        }
         if ($actualHash -ine $expectedSha256) {
             throw "Rubber Band download SHA-256 mismatch (got $actualHash). Nothing was installed."
         }
