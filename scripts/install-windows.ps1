@@ -109,8 +109,8 @@ function Get-VerifiedArchive {
 function Install-PortableGo {
     param([Parameter(Mandatory = $true)][string] $ToolsRoot)
     $version = '1.26.10'
-    $home = Join-Path $ToolsRoot 'go'
-    $goExe = Join-Path $home 'bin\go.exe'
+    $goHome = Join-Path $ToolsRoot 'go'
+    $goExe = Join-Path $goHome 'bin\go.exe'
     if (Test-Path -LiteralPath $goExe -PathType Leaf) {
         $foundVersion = & $goExe version
         if ($LASTEXITCODE -eq 0 -and $foundVersion -match 'go1\.26\.10') {
@@ -119,8 +119,8 @@ function Install-PortableGo {
         }
         throw "Bundled Go is unexpected or corrupted at $goExe. Remove .cusic-tools/go and rerun install.cmd."
     }
-    if (Test-Path -LiteralPath $home) {
-        throw "Incomplete Go installation at $home. Remove .cusic-tools/go and rerun install.cmd."
+    if (Test-Path -LiteralPath $goHome) {
+        throw "Incomplete Go installation at $goHome. Remove .cusic-tools/go and rerun install.cmd."
     }
 
     $temp = Join-Path ([IO.Path]::GetTempPath()) ("cusic-go-" + [guid]::NewGuid().ToString('N'))
@@ -135,7 +135,7 @@ function Install-PortableGo {
         if (-not (Test-Path -LiteralPath (Join-Path $source 'bin\go.exe'))) {
             throw 'Expected go/bin/go.exe in the verified archive.'
         }
-        Move-Item -LiteralPath $source -Destination $home -ErrorAction Stop
+        Move-Item -LiteralPath $source -Destination $goHome -ErrorAction Stop
     } finally {
         Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
     }
