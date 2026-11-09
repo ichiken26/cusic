@@ -234,6 +234,7 @@ try {
     $goExe = Install-PortableGo -ToolsRoot $toolsRoot
     $env:GOROOT = Join-Path $toolsRoot 'go'
     $env:GOTOOLCHAIN = 'local'
+    $env:CGO_ENABLED = '0' # keep the install self-contained without MSVC
 
     Push-Location $repoRoot
     try {
