@@ -1,0 +1,4 @@
+# Optional: only required for NumPy-based spectral analysis.
+# Tested on Python 3.12 with NumPy 2.x and SciPy 1.x.
+numpy>=2.0,<3
+scipy>=1.13,<2
