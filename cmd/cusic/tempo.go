@@ -5,6 +5,7 @@ import (
     "encoding/json"
     "errors"
     "flag"
+    "io"
     "fmt"
     "math"
     "os"
@@ -124,6 +125,11 @@ func renderTempoStems(s *store.Store,out,mode string,from,target float64,sourceN
     for index,a:=range assets {
         input,e:=s.AssetAbsolute(a);if e!=nil{return e}
         output:=filepath.Join(tempDir,fmt.Sprintf("%02d-aligned.wav",index+1))
+        if mode=="uniform" && math.Abs(ratio-1)<1e-9 {
+            if e=copyUnchanged(input,output);e!=nil{return e}
+            fmt.Printf("Copied unchanged %s -> %s (already at target BPM)\\n",a.Name,filepath.Base(output))
+            continue
+        }
         args:=[]string{"--fine","--time",fmt.Sprintf("%.12f",ratio)}
         if mode=="adaptive"{
             mapping,e:=makeTimeMap(report.BeatTimesSeconds,a.Stats.Duration,a.Stats.SampleRate,target,ratio)
@@ -172,4 +178,15 @@ func makeTimeMap(beats []float64,duration float64,sampleRate int,targetBpm float
     if endSource<=lastSource||endTarget<=lastTarget{return "",errors.New("invalid final stretch range")}
     fmt.Fprintf(&b,"%d %d\n",endSource,endTarget)
     return b.String(),nil
+}
+
+func copyUnchanged(source,destination string)error{
+    input,err:=os.Open(source);if err!=nil{return err}
+    defer input.Close()
+    output,err:=os.OpenFile(destination,os.O_CREATE|os.O_EXCL|os.O_WRONLY,0644)
+    if err!=nil{return err}
+    _,copyErr:=io.Copy(output,input)
+    closeErr:=output.Close()
+    if copyErr!=nil{return copyErr}
+    return closeErr
 }
