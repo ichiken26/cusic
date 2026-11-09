@@ -56,6 +56,7 @@ fi
 
 export GOROOT="$tools_dir/go"
 export GOTOOLCHAIN=local
+export CGO_ENABLED=0  # cusic uses pure-Go SQLite; no Xcode Command Line Tools needed
 echo 'Building cusic with the bundled Go runtime...'
 (cd "$repo_root" && "$go_exe" build -mod=readonly -o "$bin_dir/cusic" ./cmd/cusic)
 
