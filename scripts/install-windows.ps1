@@ -94,7 +94,7 @@ function Get-VerifiedArchive {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     # curl.exe is bundled with modern Windows and streams large toolchain
     # archives substantially more efficiently than Windows PowerShell 5 IWR.
-    $curl = Get-Command 'curl.exe' -CommandType Application -ErrorAction SilentlyContinue
+    $curl = Get-Command 'curl.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($curl) {
         & $curl.Source --fail --location --retry 3 --connect-timeout 30 --max-time 240 --silent --show-error --output $Destination $Url
         if ($LASTEXITCODE -ne 0) { throw "Download failed for $Url (curl exit code $LASTEXITCODE)" }
