@@ -90,7 +90,7 @@ func tempoCommand(s *store.Store,args []string)error {
         from:=report.EstimatedBPM
         if *sourceBPM!=0 {from=*sourceBPM}
         if report.Confidence<0.20 && *sourceBPM==0{return errors.New("tempo evidence too weak; confirm a source BPM and pass --source-bpm")}
-        if *mode=="adaptive" && (report.Confidence<0.45 || len(report.BeatTimesSeconds)<16){
+        if *mode=="adaptive" && (report.Confidence<0.45 || report.BeatCoverage<0.35 || len(report.BeatTimesSeconds)<16){
             return errors.New("adaptive beat alignment is too uncertain; use uniform mode or improve the drum stem")
         }
         return renderTempoStems(s,*out,*mode,from,float64(settings.Tempo),asset.Name,report)
