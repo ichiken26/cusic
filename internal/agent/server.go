@@ -248,6 +248,7 @@ func NewServer()*mcp.Server{
   return withStore(func(s *store.Store)(any,error){
    file,err:=outputPath(in.Out);if err!=nil{return nil,err}
    cfg,err:=s.Settings();if err!=nil{return nil,err}
+    if cfg.Tempo==0{return nil,errors.New("BPM not confirmed: use tempo_analyze then tempo_confirm before exporting")}
    tracks,err:=s.Tracks();if err!=nil{return nil,err}
    ns:=map[string][]store.Note{};for _,t:=range tracks{n,e:=s.Notes(t.ID,0,0);if e!=nil{return nil,e};ns[t.ID]=n}
    if err:=os.MkdirAll(filepath.Dir(file),0755);err!=nil{return nil,err}
