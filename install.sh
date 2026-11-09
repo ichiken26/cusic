@@ -91,7 +91,7 @@ if [[ ! -x "$bin_dir/rubberband" ]]; then
     echo 'Rubber Band is already available on PATH.'
   else
     echo 'Installing Rubber Band 4.0.0 from official macOS distribution...'
-    download_verified "https://breakfastquay.com/files/releases/rubberband-4.0.0-gpl-executable-macos.tar.bz2" "__MAC_RUBBERBAND_SHA256__" "$scratch/rubberband.tbz"
+    download_verified "https://breakfastquay.com/files/releases/rubberband-4.0.0-gpl-executable-macos.tar.bz2" "0dc91509a31a94c1144436cc20e6f1d165bdab39fe125f9be7d46139921b733f" "$scratch/rubberband.tbz"
     mkdir -p "$scratch/rubberband-extract"
     tar -xjf "$scratch/rubberband.tbz" -C "$scratch/rubberband-extract"
     rubberband_found="$(find "$scratch/rubberband-extract" -type f -name rubberband | head -n 1)"
