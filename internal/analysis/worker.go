@@ -11,6 +11,7 @@ import (
  "errors"
  "fmt"
  "os"
+ "path/filepath"
  "os/exec"
  "runtime"
  "strings"
@@ -62,6 +63,15 @@ func Python() (string, []string, error) {
   path,err:=exec.LookPath(val);if err!=nil{return "",nil,fmt.Errorf("CUSIC_PYTHON=%s not found: %w",val,err)}
   return path,nil,nil
  }
+ // Self-contained Windows installs put the interpreter in a private venv
+ // beside the cusic checkout. The user does not need Python on global PATH.
+ // CUSIC_PYTHON always overrides this for advanced/custom installations.
+ if executable,err:=os.Executable();err==nil {
+  checkout:=filepath.Clean(filepath.Join(filepath.Dir(executable),".."))
+  py:=filepath.Join(checkout,".cusic-tools","venv","Scripts","python.exe")
+  if runtime.GOOS!="windows" {py=filepath.Join(checkout,".cusic-tools","venv","bin","python")}
+  if info,e:=os.Stat(py);e==nil && !info.IsDir(){return py,nil,nil}
+ }
  choices:=[]string{"python3","python"}
  if runtime.GOOS=="windows"{choices=[]string{"python","python3","py"}}
  for _,name:=range choices {
@@ -70,7 +80,7 @@ func Python() (string, []string, error) {
    return path,nil,nil
   }
  }
- return "",nil,errors.New("Python not found: install Python 3.10+ and audio/requirements.txt (numpy scipy), or set CUSIC_PYTHON")
+ return "",nil,errors.New("Python not found: on Windows rerun cusic install.cmd to provision the private environment, or set CUSIC_PYTHON")
 }
 func Analyze(ctx context.Context,files []File,maxWindows int)(Report,error) {
  var zero Report
