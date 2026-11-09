@@ -104,6 +104,23 @@ jobs:
           $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
           $matches = @($userPath -split ';' | Where-Object { $_.TrimEnd([char[]]@('\', '/')) -ieq $expected })
           if ($matches.Count -ne 1) { throw "expected exactly one registered bin PATH, got $($matches.Count)" }
+          # Go and Python must come from the project-private toolchain,
+          # not an OS/global installation or the runner's setup-go.
+          $tools = Join-Path $repo '.cusic-tools'
+          $privateGo = Join-Path $tools 'go\bin\go.exe'
+          $privateUv = Join-Path $tools 'uv\uv.exe'
+          $privatePython = Join-Path $tools 'venv\Scripts\python.exe'
+          foreach ($path in @($privateGo, $privateUv, $privatePython)) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "missing private dependency: $path" }
+          }
+          & $privateGo version
+          if ($LASTEXITCODE -ne 0) { throw "portable Go cannot execute" }
+          & $privatePython -c 'import numpy, scipy; print(numpy.__version__, scipy.__version__)'
+          if ($LASTEXITCODE -ne 0) { throw "private Python NumPy/SciPy imports failed" }
+          # Confirm the production executable's bundled Python discovery.
+          $env:CUSIC_PYTHON = ''
+          & (Join-Path $expected 'cusic.exe') help
+          if ($LASTEXITCODE -ne 0) { throw "production executable cannot launch" }
           $rubberband = Join-Path $expected 'rubberband.exe'
           if (Test-Path $rubberband) {
             if ((Get-Item $rubberband).Length -eq 0) { throw "Rubber Band install produced an empty executable" }
