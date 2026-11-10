@@ -162,6 +162,28 @@ check actual sound in Piapro Studio. Keep original tuned VSQX untouched.
   _,writeErr:=f.WriteString(instructions);closeErr:=f.Close()
   if writeErr!=nil{return writeErr};if closeErr!=nil{return closeErr}
  }else if e!=nil{return e}
+ // Refresh Teto SV2 workflow instructions in existing song folders without
+ // replacing user-authored content. This is intentionally idempotent.
+ if existing,e:=os.ReadFile(guide);e==nil && !strings.Contains(string(existing),"svp_clone_apply"){
+  instructions:=`
+## cusic Teto SV2 SVP workflow (current)
+Prefer vocal_phonology_analyze -> svp_clone_plan -> svp_clone_apply after
+approval. Use the cusic-managed Teto vocal notes; no manual MIDI or JS
+bridge is needed. The new SVP clones the original Teto singer and track
+settings, MUTES the old track only inside the NEW file, and applies the
+revised notes to the new track. NEVER overwrite the original .svp.
+Japanese high vowel /i,u/ may devoice between voiceless consonants or
+before a pause; く before ゆ should not be force-devoiced, while phrase-
+final す is context-dependent. Distribute multi-mora kana lyrics WITHIN
+the original note onset/end; do not move the note before a barline just
+to over-enunciate a consonant. Phonological advice is not measured
+audio alignment. Open the exported NEW SVP in SynthV 2 Pro and audition.
+Legacy TypeScript scripts remain optional for precise manual tuning.
+`
+  f,e:=os.OpenFile(guide,os.O_WRONLY|os.O_APPEND,0644);if e!=nil{return e}
+  _,writeErr:=f.WriteString(instructions);closeErr:=f.Close()
+  if writeErr!=nil{return writeErr};if closeErr!=nil{return closeErr}
+ }else if e!=nil{return e}
  agents:=filepath.Join(absolute,"AGENTS.md")
  if _,e:=os.Stat(agents);errors.Is(e,os.ErrNotExist){
   _=os.WriteFile(agents,[]byte("# Agent instructions\n\nRead CUSIC_WORKFLOW.md before making changes to this music project.\n"),0644)

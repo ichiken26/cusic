@@ -97,6 +97,7 @@ func NewServer()*mcp.Server{
  server:=mcp.NewServer(&mcp.Implementation{Name:"cusic",Version:"0.3.0"},nil)
  registerPluginTools(server)
  registerVocalTools(server)
+ registerSVPTools(server)
  mcp.AddTool(server,&mcp.Tool{Name:"project_inventory",Description:"Discover Cubase .cpr, DAWproject, MIDI, WAV, VSQX and SVP files in this directory. No modifications."},func(ctx context.Context,req *mcp.CallToolRequest,in empty)(*mcp.CallToolResult,response,error){
   root:=projectDir()
   files:=map[string][]string{".cpr":{}, ".dawproject":{}, ".mid":{}, ".midi":{}, ".tg":{}, ".wav":{}, ".vsqx":{}, ".svp":{}}

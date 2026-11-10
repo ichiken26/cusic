@@ -53,6 +53,7 @@ func run(args []string)error{
  case "track":return track(s,args[1:])
  case "note":return note(s,args[1:])
  case "vocal":return vocalCommand(s,args[1:])
+ case "svp":return svpCommand(s,args[1:])
  case "inspect":return inspect(s,args[1:])
  case "patch":return patch(s,args[1:])
  case "log":
@@ -102,7 +103,7 @@ func help()error{
  fmt.Print("  cusic import song.mid\n  cusic export --format midi --out song.mid\n")
  fmt.Print("  cusic export --format synthv --track Teto --bars 1:8 --out teto.json\n")
  fmt.Print("  cusic import demo.tg | demo.dawproject | demo.mid\n  cusic suno import ./stems\n  cusic suno separate --out ./stems song.wav\n  cusic suno transcribe --out ./midi stem.wav\n  cusic audio list\n  cusic tempo analyze [--source Drums]\n  cusic tempo set --bpm 184\n  cusic tempo render --out ./aligned --confirm [--mode uniform|adaptive]\n")
- fmt.Print("  cusic vocal voices | vocal apply --file edits.json\n  cusic export --format vsqx --track Miku --out miku.vsqx [--voice Original] [--template file.vsqx]\n  cusic export --format dawproject --out cubase.dawproject\n")
+ fmt.Print("  cusic vocal voices | vocal apply --file edits.json\n  cusic vocal analyze --track Teto [--from original.svp]\n  cusic svp plan --from original.svp --track Teto\n  cusic svp apply --from original.svp --track Teto --out corrected.svp\n  cusic export --format vsqx --track Miku --out miku.vsqx [--voice Original]\n  cusic export --format dawproject --out cubase.dawproject\n")
  fmt.Print("  cusic sync plan --from cubase-export.dawproject\n  cusic sync pull --from cubase-export.dawproject --base-revision 12\n")
  fmt.Print("  cusic analyze [--max-windows 512] # NumPy/SciPy FFT analysis of imported WAV stems\n")
  fmt.Print("  cusic effects inspect --from source.dawproject\n  cusic effects plan --from source.dawproject --plan effects.json\n  cusic effects apply --from source.dawproject --out edited.dawproject --plan effects.json --confirm\n  cusic source attach --from original.dawproject\n")
