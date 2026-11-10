@@ -95,7 +95,6 @@ func patchTrackNotes(project *node,name string,notes []store.Note)error{
   for _,part:=range n.Children{if child,ok:=part.(*node);ok{
    if err:=gather(child);err!=nil{return err}
   }}
-  }
   return nil
  }
  if err=gather(lane);err!=nil{return err}
