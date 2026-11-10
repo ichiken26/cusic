@@ -35,6 +35,9 @@ MCPの `tempo_analyze`、`tempo_confirm`、`tempo_render` も使えます。後�
 | WAV解析（Peak、RMS、大まかな帯域） | MCPで自動 |
 | AIの編曲案→範囲指定の楽器ノート編集 | MCPで自動 |
 | ミックス案の検証とEQ/フェーダー/パンのDAWproject変換 | MCPで自動、適用前に承認 |
+| DAWprojectのVST3設定・インストゥルメント状態・オートメーションの原本保持 | 自動（元DAWproject保存＋変更箇所のみ更新） |
+| 汎用Compressorの追加・編集、既存VST3 FXの複製・プリセット状態差替え | MCPで対応範囲を確認、適用前に承認 |
+| Kontakt外部チャンネル・パン・ルーティングの診断 | DAWprojectのメタデータから読める範囲で自動 |
 | VSQX/SVP/PPSFの原本バックアップ | MCPで自動 |
 | 既存VSQXの歌詞・音高のみ変更（元のコントローラ残存） | MCPで新ファイル生成 |
 | 既存SV2の歌詞・音高のみ変更（ノート再生成なし） | TS+Zodツール経由、SynthV内で手動実行 |
@@ -44,13 +47,17 @@ MCPの `tempo_analyze`、`tempo_confirm`、`tempo_render` も使えます。後�
 
 ## MCPで公開しているツール
 
-`project_inventory`、`project_initialize`、`project_status`、`project_import`、`track_create`、`track_inspect`、`patch_apply`、`history`、`history_revert_head`、`audio_import`、`audio_list`、`mix_analyze_stems`、`mix_plan`、`mix_apply`、`score_export`、`cubase_sync_plan`、`cubase_sync_apply`、`vocal_source_status`、`vocal_backup_source`、`vocal_vsqx_edit_existing`。
+`project_inventory`、`project_initialize`、`project_status`、`project_import`、`project_source_status`、`project_source_attach`、`effects_inspect`、`effects_plan`、`effects_apply`、`kontakt_diagnose`、`track_create`、`track_inspect`、`patch_apply`、`history`、`history_revert_head`、`audio_import`、`audio_list`、`mix_analyze_stems`、`mix_plan`、`mix_apply`、`score_export`、`cubase_sync_plan`、`cubase_sync_apply`、`vocal_source_status`、`vocal_backup_source`、`vocal_vsqx_edit_existing`。
 
 ## ミックスでの重要な制約
 
 `mix_apply` は元CubaseのDAWprojectのZIP内部にある`project.xml`のミキサー静的値を編集して、**新しいファイル**として書き出す。録音データと既存VSTバイナリはコピーするが、Cubaseの実機での標準Equalizerのマッピング・音響結果は未確認。最初はテスト用コピーで開いて試聴する。
 
-SQLiteに登録したWAVは曲頭からのオーディオステムとして扱う。Cubaseの録音テイクやオーディオイベントの元位置、スリップ、ワープを完全に再現するものではない。**既存曲のミックスは、`cusic export --format dawproject`で作り直したファイルでなく、必ずCubaseからエクスポートした元のDAWprojectを編集する。**
+SQLiteに登録したWAVは曲頭からのオーディオステムとして扱う。しかし**既存のDAWprojectを取り込んだ場合は、cusicが元のDAWprojectを丸ごと保存**するため、今後の `cusic export --format dawproject` とMCPの `score_export` はその原本を使う。音符が変更されていなければバイト単位で複製し、変更した場合も単純なノートクリップだけ差し替えて、既存のVST3状態・ルーティング・録音データなどを保持する。安全に差し替えられない複雑な楽曲構造はエラーにする。
+
+すでに古いcusicで取り込んだ曲は `cusic source attach --from original.dawproject`、または `project_source_attach` で元ファイルを紐付ける。自動で保存されたかは `cusic source status` で確認できる。
+
+エフェクト編集は `effects_inspect` → `effects_plan` → `effects_apply` の順。汎用Compressorの挿入、既存VST3 FXとStateの複製、明示的な互換状態ファイルによる更新などをサポートするが、**Kontaktの独自内部ルーティングやVST3の不透明なバイナリ状態を解読して任意ノブを書き換えるものではない**。Cubaseで利用不可のプラグインはDAWproject内に状態を保持してもロードできない。
 
 ## 歌声調声保護の重要な制約
 

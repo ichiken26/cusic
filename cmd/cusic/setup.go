@@ -45,8 +45,13 @@ func setup(args []string)error{
      if tmpErr!=nil{e=tmpErr;break}
     }
    }
+   if e==nil{
+    names:=make([]string,0,len(parsed.Song.Tracks))
+    for _,tr:=range parsed.Song.Tracks{names=append(names,tr.Name)}
+    e=s.SaveSourceDAWProject(filename,names)
+   }
    s.Close();if e!=nil{return e}
-   fmt.Println("Initialized from "+candidates[0]+" (note tracks and embedded WAV imported)")
+   fmt.Println("Initialized from "+candidates[0]+" (notes/WAV and original DAWproject effects/state preserved)")
   }else{
    fmt.Fprintln(os.Stderr,"No unique DAWproject found. MCP can initialize an audio-first project with pending tempo, import Suno stems, then propose BPM from the drums.")
   }
@@ -93,7 +98,11 @@ The user gives free-form instructions and does NOT need to learn cusic commands.
 1. Discover the local cusic MCP tools and call project_inventory / project_status.
 2. If only .cpr exists, ask the user for ONE Cubase export to .dawproject.
    Do not pretend you can extract audio/MIDI from proprietary .cpr automatically.
-3. Import the DAWproject through project_import. Inspect audio assets and track notes.
+3. Import the DAWproject through project_import. The original DAWproject,
+    including device states and routing, is kept automatically as export base.
+    Inspect audio assets and track notes. If imported by an older cusic
+    version, use project_source_attach with explicit approval.
+    Never regenerate from only notes/WAV because that strips the effects.
 4. For arrangement edits, create bounded track patches based on HEAD.
    Keep existing live guitar/bass recordings untouched; new MIDI is an arrangement suggestion.
 5. Before mixing, prefer mix_analyze_spectral (NumPy/SciPy FFT) for\n   spectrum overlap, spectral centroid and stereo correlation. If Python is not\n   configured, fall back to mix_analyze_stems for basic Go-only WAV statistics.\n   Report proposed EQ/comp/pan
@@ -108,6 +117,23 @@ The user gives free-form instructions and does NOT need to learn cusic commands.
 `
  guide:=filepath.Join(absolute,"CUSIC_WORKFLOW.md")
  if _,e:=os.Stat(guide);errors.Is(e,os.ErrNotExist){if e=os.WriteFile(guide,[]byte(workflow),0644);e!=nil{return e}}
+ // Update previously generated project guidance without replacing user edits.
+ if existing,e:=os.ReadFile(guide);e==nil && !strings.Contains(string(existing),"project_source_status"){
+  note:=`
+## cusic effect/source preservation
+Before exporting or editing an existing DAWproject, call project_source_status.
+If a legacy import lacks its original source archive, request permission and
+use project_source_attach with the original DAWproject; do not recreate only
+notes/WAV and discard VST instrument/effect settings.
+effects_inspect and kontakt_diagnose inspect without changes. effects_plan
+previews an operation and effects_apply requires user approval and writes a
+NEW DAWproject. Unknown vendor VST3 state cannot be guessed or synthesized.
+`
+  f,e:=os.OpenFile(guide,os.O_WRONLY|os.O_APPEND,0644);if e!=nil{return e}
+  _,writeErr:=f.WriteString(note);closeErr:=f.Close()
+  if writeErr!=nil{return writeErr}
+  if closeErr!=nil{return closeErr}
+ }else if e!=nil{return e}
  agents:=filepath.Join(absolute,"AGENTS.md")
  if _,e:=os.Stat(agents);errors.Is(e,os.ErrNotExist){
   _=os.WriteFile(agents,[]byte("# Agent instructions\n\nRead CUSIC_WORKFLOW.md before making changes to this music project.\n"),0644)
