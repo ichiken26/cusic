@@ -60,6 +60,10 @@ func sourceCommand(s *store.Store,args []string)error{
   if err:=f.Parse(args[1:]);err!=nil{return err}
   if *from==""||f.NArg()>0{return errors.New("usage: cusic source attach --from original.dawproject")}
   src,err:=dawproject.ReadFile(*from);if err!=nil{return err}
+  settings,err:=s.Settings();if err!=nil{return err}
+  if settings.Tempo!=src.Song.Tempo||settings.MeterNum!=src.Song.MeterNum||settings.MeterDen!=src.Song.MeterDen {
+   return errors.New("source DAWproject tempo/meter differs from cusic project; refusing unsafe attachment")
+  }
   if err=s.VerifySourceNotes(src.Song.Tracks);err!=nil{return err}
   names:=make([]string,0,len(src.Song.Tracks))
   for _,tr:=range src.Song.Tracks{names=append(names,tr.Name)}
