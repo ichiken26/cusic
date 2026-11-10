@@ -57,6 +57,15 @@ func (e *elem)encode(enc *xml.Encoder)error{
  return enc.EncodeToken(xml.EndElement{Name:name})
 }
 func shortPhoneme(s string)(string,bool){
+ // VSQX/Piapro V4X special lyrics. Not every voicebank implements breath
+ // recordings; the user must check the rendered voice.
+ special:=strings.ToLower(strings.TrimSpace(s))
+ switch special{
+ case "っ","ッ","sil","[sil]","pau","[pau]":return "Sil",true
+ case "br1","br2","br3","br4","br5":return special,true
+ case "ー","-":return "-",true
+ }
+
  // Simple syllables. Complex Japanese lyrics need review in Piapro Studio.
  mapKana:=map[string]string{
   "あ":"a","い":"i","う":"M","え":"e","お":"o",
@@ -97,18 +106,51 @@ func Export(template []byte,settings store.Settings,track store.Track,notes []st
  master:=root.child("masterTrack");if master==nil{return nil,errors.New("template has no masterTrack")}
  voices:=root.child("vVoiceTable");if voices==nil||len(voices.all("vVoice"))==0{return nil,errors.New("template lacks voicebank metadata")}
  tracks:=root.all("vsTrack")
- if len(tracks)!=1{return nil,fmt.Errorf("template must have exactly one vsTrack, got %d",len(tracks))}
- parts:=tracks[0].all("vsPart");if len(parts)!=1{return nil,errors.New("template must have one vocal region (vsPart)")}
+ if len(tracks)==0{return nil,errors.New("VSQX source has no vocal tracks")}
+ // This is a NEW phrase export, not an edit of the source. Extract a usable
+ // track and vocal part from an ordinary multi-track, multi-part VSQX. Do not
+ // require a special single-track template from the user.
+ var selectedTrack *elem
+ var part *elem
+ for _,candidate:=range tracks{
+  if found:=candidate.all("vsPart");len(found)>0{
+   selectedTrack=candidate;part=found[0];break
+  }
+ }
+ if selectedTrack==nil{return nil,errors.New("VSQX source contains no vocal parts (vsPart)")}
+ remainingTracks:=make([]*elem,0,len(root.Children))
+ for _,child:=range root.Children{
+  if child.Name.Local!="vsTrack"||child==selectedTrack{remainingTracks=append(remainingTracks,child)}
+ }
+ root.Children=remainingTracks
+ remainingParts:=make([]*elem,0,len(selectedTrack.Children))
+ for _,child:=range selectedTrack.Children{
+  if child.Name.Local!="vsPart"||child==part{remainingParts=append(remainingParts,child)}
+ }
+ selectedTrack.Children=remainingParts
  if settings.MeterDen<=0||settings.MeterNum<=0||settings.PPQ!=store.PPQ{return nil,errors.New("unsupported score resolution or meter")}
- if len(master.all("tempo"))!=1||len(master.all("timeSig"))!=1{return nil,errors.New("use a single-tempo, single-meter VSQX template")}
+ // Convert multiple tempo/signature events in this template to this song's
+ // single confirmed BPM/meter. The ORIGINAL VSQX remains untouched.
+ masterValues:=make([]*elem,0,len(master.Children))
+ seenTempo,seenSig:=false,false
+ for _,child:=range master.Children{
+  switch child.Name.Local{
+  case "tempo":if seenTempo{continue};seenTempo=true
+  case "timeSig":if seenSig{continue};seenSig=true
+  }
+  masterValues=append(masterValues,child)
+ }
+ master.Children=masterValues
+ if !seenTempo{master.set("tempo","")}
+ if !seenSig{master.set("timeSig","")}
  master.set("seqName",settings.Name);master.set("resolution","480")
  m:=master.child("tempo");m.set("t","0");m.set("v",strconv.Itoa(settings.Tempo*100))
  sig:=master.child("timeSig");sig.set("m","0");sig.set("nu",strconv.Itoa(settings.MeterNum));sig.set("de",strconv.Itoa(settings.MeterDen))
  pre,_:=strconv.ParseInt(master.text("preMeasure"),10,64)
- if pre<1||pre>16{return nil,errors.New("invalid VSQX preMeasure; expected 1..16")}
+ if pre<1||pre>16{pre=4;master.set("preMeasure","4")}
  lead:=pre*int64(settings.MeterNum)*store.PPQ*4/int64(settings.MeterDen)
- part:=parts[0];part.set("t",strconv.FormatInt(lead,10))
- tracks[0].set("name",track.Name)
+ part.set("t",strconv.FormatInt(lead,10))
+ selectedTrack.set("name",track.Name)
  // Preserve all singer, voice bank and style data. Do not keep old automation
  // because its timing may no longer match the newly generated notes.
  sorted:=append([]store.Note(nil),notes...)
@@ -196,4 +238,20 @@ func EditExisting(source []byte, edits []NoteEdit)([]byte,error){
  encoder:=xml.NewEncoder(out);if err:=root.encode(encoder);err!=nil{return nil,err}
  if err:=encoder.Flush();err!=nil{return nil,err}
  return out.Bytes(),nil
+}
+
+func encodeVSQX(root *elem)([]byte,error){
+ out:=&bytes.Buffer{}
+ out.WriteString(xml.Header)
+ encoder:=xml.NewEncoder(out)
+ if err:=root.encode(encoder);err!=nil{return nil,err}
+ if err:=encoder.Flush();err!=nil{return nil,err}
+ return out.Bytes(),nil
+}
+// ExportForVoice reuses registered voicebank metadata, never guesses IDs.
+func ExportForVoice(template []byte,voice string,allowFallback bool,settings store.Settings,track store.Track,notes []store.Note)([]byte,VoiceTemplate,error){
+ resolved,selected,err:=SelectVoice(template,voice,allowFallback)
+ if err!=nil{return nil,selected,err}
+ data,err:=Export(resolved,settings,track,notes)
+ return data,selected,err
 }

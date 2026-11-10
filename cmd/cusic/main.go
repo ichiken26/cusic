@@ -52,6 +52,7 @@ func run(args []string)error{
   return printJSON(struct{Project store.Settings `json:"project"`;Head int64 `json:"head"`;Tracks []store.Track `json:"tracks"`}{settings,head,tracks})
  case "track":return track(s,args[1:])
  case "note":return note(s,args[1:])
+ case "vocal":return vocalCommand(s,args[1:])
  case "inspect":return inspect(s,args[1:])
  case "patch":return patch(s,args[1:])
  case "log":
@@ -101,7 +102,7 @@ func help()error{
  fmt.Print("  cusic import song.mid\n  cusic export --format midi --out song.mid\n")
  fmt.Print("  cusic export --format synthv --track Teto --bars 1:8 --out teto.json\n")
  fmt.Print("  cusic import demo.tg | demo.dawproject | demo.mid\n  cusic suno import ./stems\n  cusic suno separate --out ./stems song.wav\n  cusic suno transcribe --out ./midi stem.wav\n  cusic audio list\n  cusic tempo analyze [--source Drums]\n  cusic tempo set --bpm 184\n  cusic tempo render --out ./aligned --confirm [--mode uniform|adaptive]\n")
- fmt.Print("  cusic export --format vsqx --track Miku --template piapro.vsqx --out miku.vsqx\n  cusic export --format dawproject --out cubase.dawproject\n")
+ fmt.Print("  cusic vocal voices | vocal apply --file edits.json\n  cusic export --format vsqx --track Miku --out miku.vsqx [--voice Original] [--template file.vsqx]\n  cusic export --format dawproject --out cubase.dawproject\n")
  fmt.Print("  cusic sync plan --from cubase-export.dawproject\n  cusic sync pull --from cubase-export.dawproject --base-revision 12\n")
  fmt.Print("  cusic analyze [--max-windows 512] # NumPy/SciPy FFT analysis of imported WAV stems\n")
  fmt.Print("  cusic effects inspect --from source.dawproject\n  cusic effects plan --from source.dawproject --plan effects.json\n  cusic effects apply --from source.dawproject --out edited.dawproject --plan effects.json --confirm\n  cusic source attach --from original.dawproject\n")
@@ -313,7 +314,9 @@ func writeFileAtomic(path string,b []byte)error{
 func export(s *store.Store,args []string)error{
  f:=flag.NewFlagSet("export",flag.ContinueOnError)
  format:=f.String("format","midi","midi, synthv, vsqx or dawproject");out:=f.String("out","","output file")
- template:=f.String("template","","Piapro V4X template VSQX")
+ template:=f.String("template","","optional Piapro VSQX; auto-discovered if omitted")
+ voice:=f.String("voice","","preferred voice such as Original, Solid or Sweet")
+ requireVoice:=f.Bool("require-voice",false,"reject if requested voice not available in project VSQX")
  track:=f.String("track","","vocal track");bars:=f.String("bars","","inclusive bar range for synthv")
  if err:=f.Parse(args);err!=nil{return err}
  if *out==""{return errors.New("--out required")}
@@ -346,16 +349,23 @@ func export(s *store.Store,args []string)error{
   }
   if err=dawproject.WriteFile(*out,settings,tracks,notes,audioFiles);err!=nil{return err}
  case "vsqx":
-  if *track==""||*template==""{return errors.New("vsqx requires --track and --template from Piapro Studio V4X")}
+  if *track==""{return errors.New("vsqx requires --track (use cusic vocal apply for new vocal tracks)")}
   t,err:=s.Track(*track);if err!=nil{return err}
   if t.Kind!="vocal"{return errors.New("vsqx requires a vocal track")}
   from,to,err:=noteRange(settings,*bars);if err!=nil{return err}
   notes,err:=s.Notes(t.ID,from,to);if err!=nil{return err}
   if from!=0{for _,n:=range notes{if n.Tick<from||n.Tick+n.Duration>to{return errors.New("VSQX note crosses selection boundary")}}}
-  b,err:=os.ReadFile(*template);if err!=nil{return err}
-  encoded,err:=vsqx.Export(b,settings,t,notes);if err!=nil{return err}
+  requested:=*voice
+  if requested==""{requested=t.Singer}
+  selected,err:=vsqx.ChooseTemplate(s.Root,requested,*template,!*requireVoice)
+  if err!=nil{return err}
+  original,err:=os.ReadFile(selected.File);if err!=nil{return err}
+  encoded,actual,err:=vsqx.ExportForVoice(original,selected.Voice,true,settings,t,notes)
+  if err!=nil{return err}
   if err=writeFileAtomic(*out,encoded);err!=nil{return err}
-  fmt.Fprintln(os.Stderr,"Note: review Japanese phonemes and vocal tuning inside Piapro Studio.")
+  fmt.Printf("VSQX written using voice %q from %s\n",actual.Voice,selected.File)
+  if selected.Warning!=""{fmt.Fprintln(os.Stderr,"VOICE WARNING: "+selected.Warning)}
+  fmt.Fprintln(os.Stderr,"Review phonemes/EVEC and listen in Piapro Studio; the original remains unchanged.")
  case "synthv":
   if *track==""{return errors.New("--track required for synthv")}
   t,err:=s.Track(*track);if err!=nil{return err}

@@ -122,7 +122,7 @@ cusic effects apply --from original.dawproject --plan effects.json --out effects
 | Cubase | `cusic export --format dawproject --out song.dawproject` | 音符トラックとタイムライン先頭に揃えたWAVステムをZIPに格納 |
 | Cubaseから取り込み | `cusic import edit.dawproject` | DAWproject内の基本的な音符クリップ・WAVを新規トラックとして読み込む |
 | Cubase編集の同期 | `cusic sync plan/pull --from edit.dawproject` | 同名の**楽器トラックの音符のみ**、手動・差分確認付き同期 |
-| 初音ミク V4X | `cusic export --format vsqx --template empty.vsqx --track Miku --out miku.vsqx` | Piapro Studioで書き出したVOCALOID4テンプレートを利用 |
+| 初音ミク V4X | `cusic vocal voices` → `cusic vocal apply` → `cusic export --format vsqx --track Miku --out miku.vsqx` | 声色情報を曲フォルダのVSQXから自動取得。促音・ブレスと非破壊のノート差分変更に対応 |
 | 重音テト SV2 | `cusic export --format synthv --track Teto --bars 1:8 --out teto.json` | TypeScript + Zod検証→ビルド済みES5.1 JSでSynthVへ反映 |
 | 履歴 | `cusic status/log/diff/revert` | SQLiteトランザクション単位の更新履歴。revertはHEADのみ |
 
@@ -306,13 +306,40 @@ cusic log
 
 ## ミク V4X（VSQX）
 
-初音ミクV4Xの歌声ライブラリ情報を安全に維持するため、**手元のPiapro Studioから書き出したVSQXをテンプレート**に使う。ミクを設定した**1トラック・1パート・固定テンポ拍子**の短いテンプレートを用意してね。
+**VSQXのテンプレートファイルの手入力は不要**。曲フォルダ（子フォルダ含む）にある実際のVSQXをcusicが探し、インストール済みの声色を指すメタデータを再利用する。ライセンスされたボイスバンクの `compID` やシンガー設定値を捏造しない。
 
 ~~~bash
-cusic export --format vsqx --track Miku --template /path/to/miku-template.vsqx --out ./miku-v1.vsqx
+# 実際の声色を含むVSQXを発見（Original / Solid / Sweet 等）
+cusic vocal voices
+# 既存または新しいSideVocalの音符・歌詞をcusicへ一括登録
+cusic vocal apply --file vocal-edits.json
+# テンプレート指定不要：実際の声色を探して使用
+cusic export --format vsqx --track SideVocal --voice Original --out side-vocal.vsqx
 ~~~
 
-テンプレートの歌手・声ライブラリ情報は保持し、音符・歌詞・基本発音を置き換える。歌詞は**1ノートにつき1つのひらがな/カタカナのモーラ**を推奨。漢字、複雑な促音、特殊な音節など対応外の発音はエラーになる。**Piapro Studio側で音素・ブレス・歌唱パラメータの最終調整が必要**。Piapro実機でのインポート確認は未実施。
+`vocal-edits.json` の例。曲の `cusic status` の `HEAD` を `baseRevision` に指定する。未登録のSideVocalも自動作成するので `track add` は不要：
+
+~~~json
+{
+  "track": "SideVocal",
+  "singer": "Original",
+  "createTrack": true,
+  "baseRevision": 0,
+  "changes": [
+    {"action": "add", "note": {"tick": 0, "duration": 240, "pitch": 70, "velocity": 100, "lyric": "っ"}},
+    {"action": "add", "note": {"tick": 240, "duration": 240, "pitch": 72, "velocity": 100, "lyric": "br1"}},
+    {"action": "add", "note": {"tick": 480, "duration": 480, "pitch": 74, "velocity": 100, "lyric": "あ"}}
+  ]
+}
+~~~
+
+既存ノートの修正は、`cusic inspect` のノートIDを指定した `action: "update"` で変更できる。範囲内のノートをまるごと削除する `patch apply` と異なり、**対象ノート以外の歌詞やフレーズを保持したまま編集**する。削除もID指定で明示可能。SQLiteのリビジョン管理とHEAD競合チェック付き。
+
+`っ` は無音音素 `Sil`、`br1`〜`br5` はブレス指定、`-` は伸ばす音として処理する。ブレスはボイスバンクによって実際の発音が異なるため、Piapro Studioで試聴して確認してね。
+
+**Originalが見つからずSolid/Sweetだけがある場合：** `Original` のIDは捏造せず、実在する声色でVSQXを作って**警告に実際の声色名を表示**する。Originalで必ず書き出したいなら、その声色で保存したVSQXを曲フォルダに入れ、`--require-voice` を指定して実行できる。すでにあるVSQXが1つもない場合だけ、Piaproから最初の1ファイルを書き出しておく必要がある。以降は自動。
+
+Claude Code / Codex からは `vocal_voices` → `vocal_notes_apply` → `score_export(format="vsqx")` でこの処理を自動実行できる。既存の調声済みVSQXは以前と同様に `vocal_vsqx_edit_existing` で必要な音高・歌詞だけ変更し、ピッチコントローラやノートスタイルを保持する。**既存の元ファイルは上書きしない**。
 
 ## テト SV2（Synthesizer V Studio 2 Pro）
 

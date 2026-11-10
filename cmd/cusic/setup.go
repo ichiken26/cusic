@@ -112,8 +112,17 @@ The user gives free-form instructions and does NOT need to learn cusic commands.
    Vocal expression, pitch automation and retakes are the artist's original work.
    Use vocal_backup_source before any targeted edit. For Miku, vocal_vsqx_edit_existing\n   changes note pitch/lyrics in a NEW VSQX without discarding mCtrl or nStyle.\n   For Teto, prefer the TS/Zod safe existing-note script over the destructive\n   note-replacement bridge. Avoid changing onset/duration of tuned notes.\n   Do not flatten tuned vocals to MIDI and call it lossless. Produce separate
    accompaniment/harmony alternatives and seek approval for vocal modifications.
-7. Avoid overwriting any file. Work in outputs with versioned filenames.
-8. Show the user a clear summary of proposed changes rather than CLI syntax.
+7. For NEW Miku V4X / SideVocal: call vocal_voices to detect the genuine
+   installed singer metadata from existing VSQX in this song folder, then
+   vocal_notes_apply with createTrack=true for missing tracks and add/update
+   lyric notes atomically. Use score_export format=vsqx, track=SideVocal,
+   voice=Original, out=NEW_FILE.vsqx. The template is now AUTO-DISCOVERED;
+   do not require the user to supply it as a command flag. "っ" and "br1".."br5"
+   are recognized. If the actual Original voice reference cannot be found,
+   export with an existing REAL voice and clearly report the fallback; never
+   invent Original compID values. Do NOT use patch_apply for vocal tracks.
+8. Avoid overwriting any file. Work in outputs with versioned filenames.
+9. Show the user a clear summary of proposed changes rather than CLI syntax.
 `
  guide:=filepath.Join(absolute,"CUSIC_WORKFLOW.md")
  if _,e:=os.Stat(guide);errors.Is(e,os.ErrNotExist){if e=os.WriteFile(guide,[]byte(workflow),0644);e!=nil{return e}}
@@ -133,6 +142,25 @@ NEW DAWproject. Unknown vendor VST3 state cannot be guessed or synthesized.
   _,writeErr:=f.WriteString(note);closeErr:=f.Close()
   if writeErr!=nil{return writeErr}
   if closeErr!=nil{return closeErr}
+ }else if e!=nil{return e}
+ // Upgrade existing song instructions without clobbering custom edits.
+ if existing,e:=os.ReadFile(guide);e==nil && !strings.Contains(string(existing),"vocal_notes_apply"){
+  instructions:=`
+## cusic V4X vocal workflow (current)
+For SideVocal or Miku use vocal_voices -> vocal_notes_apply
+(createTrack=true to create a missing track and add lyric notes at once)
+-> score_export (format=vsqx, track=SideVocal, voice=Original, out=NEW.vsqx).
+Template argument is optional: source voice reference is discovered from
+real VSQX files in the song folder. Never fabricate an Original compID.
+If absent, export with a real available voice and report its actual name.
+Use the new vocal_notes_apply for ID-based safe edits, not patch_apply which
+deletes a whole bar and remains blocked for vocal tracks.
+"っ" represents silence and br1..br5 are potential breath notes;
+check actual sound in Piapro Studio. Keep original tuned VSQX untouched.
+`
+  f,e:=os.OpenFile(guide,os.O_WRONLY|os.O_APPEND,0644);if e!=nil{return e}
+  _,writeErr:=f.WriteString(instructions);closeErr:=f.Close()
+  if writeErr!=nil{return writeErr};if closeErr!=nil{return closeErr}
  }else if e!=nil{return e}
  agents:=filepath.Join(absolute,"AGENTS.md")
  if _,e:=os.Stat(agents);errors.Is(e,os.ErrNotExist){

@@ -87,13 +87,16 @@ type exportInput struct{
  Format string `json:"format"`
  Out string `json:"out"`
  Track string `json:"track"`
- Template string `json:"template"`
+ Template string `json:"template,omitempty"`
+ Voice string `json:"voice,omitempty"`
+ RequireVoice bool `json:"requireVoice,omitempty"`
 }
 type syncInput struct{ From string `json:"from"`; BaseRevision int64 `json:"baseRevision"`; Confirm bool `json:"confirm"` }
 type mixInput struct{ Source string `json:"source"`; Out string `json:"out"`; Tracks []mix.Track `json:"tracks"`; Confirm bool `json:"confirm"` }
 func NewServer()*mcp.Server{
  server:=mcp.NewServer(&mcp.Implementation{Name:"cusic",Version:"0.3.0"},nil)
  registerPluginTools(server)
+ registerVocalTools(server)
  mcp.AddTool(server,&mcp.Tool{Name:"project_inventory",Description:"Discover Cubase .cpr, DAWproject, MIDI, WAV, VSQX and SVP files in this directory. No modifications."},func(ctx context.Context,req *mcp.CallToolRequest,in empty)(*mcp.CallToolResult,response,error){
   root:=projectDir()
   files:=map[string][]string{".cpr":{}, ".dawproject":{}, ".mid":{}, ".midi":{}, ".tg":{}, ".wav":{}, ".vsqx":{}, ".svp":{}}
@@ -280,12 +283,19 @@ func NewServer()*mcp.Server{
     }
     e=dawproject.WriteFile(file,cfg,tracks,ns,waveFiles);return map[string]any{"path":file,"kind":"dawproject"},e
    case "vsqx":
-    if in.Track==""||in.Template==""{return nil,errors.New("new VSQX generation needs track and a real Piapro template")}
+    if in.Track==""{return nil,errors.New("VSQX export needs track; first call vocal_notes_apply with createTrack=true for missing tracks")}
     t,e:=s.Track(in.Track);if e!=nil{return nil,e}
     if t.Kind!="vocal"{return nil,errors.New("VSQX track must be vocal")}
-    tpl,e:=os.ReadFile(pathFromProject(in.Template));if e!=nil{return nil,e}
-    b,e:=vsqx.Export(tpl,cfg,t,ns[t.ID]);if e!=nil{return nil,e}
-    return map[string]any{"path":file,"kind":"vsqx","warning":"Use for NEW vocal phrases only, not as a replacement for previously tuned VSQX"},os.WriteFile(file,b,0644)
+    requested:=in.Voice
+    if requested==""{requested=t.Singer}
+    explicit:=""
+    if in.Template!=""{explicit=pathFromProject(in.Template)}
+    chosen,e:=vsqx.ChooseTemplate(s.Root,requested,explicit,!in.RequireVoice)
+    if e!=nil{return nil,e}
+    tpl,e:=os.ReadFile(chosen.File);if e!=nil{return nil,e}
+    b,realVoice,e:=vsqx.ExportForVoice(tpl,chosen.Voice,true,cfg,t,ns[t.ID]);if e!=nil{return nil,e}
+    if e=os.WriteFile(file,b,0644);e!=nil{return nil,e}
+    return map[string]any{"path":file,"kind":"vsqx","actualVoice":realVoice.Voice,"requestedVoice":requested,"voiceSource":chosen.File,"fallbackUsed":chosen.Fallback,"warning":chosen.Warning,"notice":"Generated NEW vocal notes with a real voicebank reference. Existing tuned sources untouched; review Piapro pronunciation and EVEC."},nil
    }
    return nil,errors.New("formats: midi, dawproject, vsqx")
   })
