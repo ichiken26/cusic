@@ -144,5 +144,6 @@ func SelectVoice(data []byte,requested string,allowFallback bool)([]byte,VoiceTe
   }
  }
  // Re-encoding changes formatting but preserves document elements.
- return encodeVSQX(root)
+ dataOut,err:=encodeVSQX(root)
+ return dataOut,entry,err
 }
