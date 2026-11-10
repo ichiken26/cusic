@@ -132,3 +132,37 @@ func (s *Store) ChangesSinceSource(src *SourceDAWProject)(map[string][]Note,erro
  for name:=range src.ImportedNoteHashes{if _,err:=s.Track(name);err!=nil{return nil,fmt.Errorf("original note track %q disappeared; cannot preserve DAWproject safely",name)}}
  return result,nil
 }
+
+// VerifySourceNotes is used when attaching an old DAWproject to a cusic
+// project imported before source archiving existed. Never attach an unrelated
+// source (which might have different plug-ins or note arrangements).
+func (s *Store) VerifySourceNotes(imported []ImportedTrack) error {
+ settings,err:=s.Settings();if err!=nil{return err}
+ // Verify tempo/meter in the caller before attaching; imported tracks hold
+ // note values only. Empty original notes are accepted if names match.
+ if settings.Tempo==0{return errors.New("project BPM is not confirmed")}
+ tracks,err:=s.Tracks();if err!=nil{return err}
+ if len(imported)==0 && len(tracks)>0{
+  return errors.New("no note tracks in original DAWproject; verify the source and import it afresh")
+ }
+ for _,tr:=range imported{
+  current,err:=s.Track(tr.Name);if err!=nil{return fmt.Errorf("source note track %q is not in this project: %w",tr.Name,err)}
+  currentNotes,err:=s.Notes(current.ID,0,0);if err!=nil{return err}
+  type value struct {Tick,Duration int64;Pitch,Velocity int}
+  have:=make([]value,0,len(currentNotes))
+  want:=make([]value,0,len(tr.Notes))
+  for _,n:=range currentNotes{have=append(have,value{n.Tick,n.Duration,n.Pitch,n.Velocity})}
+  for _,n:=range tr.Notes{want=append(want,value{n.Tick,n.Duration,n.Pitch,n.Velocity})}
+  sort.Slice(have,func(i,j int)bool{return valueLess(have[i],have[j])})
+  sort.Slice(want,func(i,j int)bool{return valueLess(want[i],want[j])})
+  if len(have)!=len(want){return fmt.Errorf("note mismatch on %q: original DAWproject cannot safely be attached",tr.Name)}
+  for i:=range have{if have[i]!=want[i]{return fmt.Errorf("notes on %q differ from source DAWproject; refusing unsafe attach",tr.Name)}}
+ }
+ return nil
+}
+func valueLess(a,b struct{Tick,Duration int64;Pitch,Velocity int})bool{
+ if a.Tick!=b.Tick{return a.Tick<b.Tick}
+ if a.Pitch!=b.Pitch{return a.Pitch<b.Pitch}
+ if a.Duration!=b.Duration{return a.Duration<b.Duration}
+ return a.Velocity<b.Velocity
+}
