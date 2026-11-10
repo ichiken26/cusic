@@ -19,6 +19,7 @@ type SourceDAWProject struct{
  Archive string `json:"archive"`
  SHA256 string `json:"sha256"`
  ImportedNoteHashes map[string]string `json:"importedNoteHashes"`
+ CapturedAssetIDs []string `json:"capturedAssetIds"`
 }
 
 // noteFingerprint uses musical values rather than internal randomly-assigned
@@ -80,13 +81,15 @@ func (s *Store) SaveSourceDAWProject(source string,importedNames []string)error{
   return errors.New("another DAWproject source is already registered; refusing silent replacement of effects and instrument states")
  }
  snapshot:=SourceDAWProject{
-  Archive:"source-"+digest+".dawproject",SHA256:digest,ImportedNoteHashes:map[string]string{},
+  Archive:"source-"+digest+".dawproject",SHA256:digest,ImportedNoteHashes:map[string]string{},CapturedAssetIDs:[]string{},
  }
  for _,name:=range importedNames{
   track,err:=s.Track(name);if err!=nil{return fmt.Errorf("imported note track %q: %w",name,err)}
   h,err:=s.noteFingerprint(track.ID);if err!=nil{return err}
   snapshot.ImportedNoteHashes[name]=h
  }
+ assets,err:=s.Assets();if err!=nil{return err}
+ for _,asset:=range assets{snapshot.CapturedAssetIDs=append(snapshot.CapturedAssetIDs,asset.ID)}
  directory:=filepath.Join(s.Root,".cusic")
  if err=os.MkdirAll(directory,0755);err!=nil{return err}
  archive:=filepath.Join(directory,snapshot.Archive)
@@ -115,6 +118,14 @@ func (s *Store) SaveSourceDAWProject(source string,importedNames []string)error{
 func (s *Store) ChangesSinceSource(src *SourceDAWProject)(map[string][]Note,error){
  if src==nil{return nil,errors.New("missing source DAWproject")}
  tracks,err:=s.Tracks();if err!=nil{return nil,err}
+ // Refuse an export if newly registered audio would disappear behind the
+ // source archive. Asset insertion into an existing arrangement is separate.
+ assets,err:=s.Assets();if err!=nil{return nil,err}
+ originalAssets:=map[string]bool{}
+ for _,id:=range src.CapturedAssetIDs{originalAssets[id]=true}
+ for _,asset:=range assets{if !originalAssets[asset.ID]{
+  return nil,fmt.Errorf("new audio stem %q added after source import; refusing to silently omit it from preserved DAWproject",asset.Name)
+ }}
  result:=map[string][]Note{}
  for _,track:=range tracks{
   h,err:=s.noteFingerprint(track.ID);if err!=nil{return nil,err}
