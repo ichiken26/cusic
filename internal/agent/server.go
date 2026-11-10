@@ -93,6 +93,7 @@ type syncInput struct{ From string `json:"from"`; BaseRevision int64 `json:"base
 type mixInput struct{ Source string `json:"source"`; Out string `json:"out"`; Tracks []mix.Track `json:"tracks"`; Confirm bool `json:"confirm"` }
 func NewServer()*mcp.Server{
  server:=mcp.NewServer(&mcp.Implementation{Name:"cusic",Version:"0.3.0"},nil)
+ registerPluginTools(server)
  mcp.AddTool(server,&mcp.Tool{Name:"project_inventory",Description:"Discover Cubase .cpr, DAWproject, MIDI, WAV, VSQX and SVP files in this directory. No modifications."},func(ctx context.Context,req *mcp.CallToolRequest,in empty)(*mcp.CallToolResult,response,error){
   root:=projectDir()
   files:=map[string][]string{".cpr":{}, ".dawproject":{}, ".mid":{}, ".midi":{}, ".tg":{}, ".wav":{}, ".vsqx":{}, ".svp":{}}
@@ -191,7 +192,14 @@ func NewServer()*mcp.Server{
     os.RemoveAll(tmp)
     if e!=nil{return nil,e}
    }
-   return map[string]any{"tracksImported":len(song.Tracks),"audioImported":len(aud),"revisions":revisions,"caution":"MIDI CC, VST state and full vocal tuning are not imported into the note model"},nil
+   preserved:=false
+   if strings.EqualFold(filepath.Ext(file),".dawproject"){
+    names:=make([]string,0,len(song.Tracks))
+    for _,tr:=range song.Tracks{names=append(names,tr.Name)}
+    if e:=s.SaveSourceDAWProject(file,names);e!=nil{return nil,fmt.Errorf("notes/audio imported but original DAWproject could not be saved: %w",e)}
+    preserved=true
+   }
+   return map[string]any{"tracksImported":len(song.Tracks),"audioImported":len(aud),"revisions":revisions,"originalDAWProjectPreserved":preserved,"caution":"Imported note model cannot represent all VST internals or MIDI expression; saved original DAWproject is used as export base"},nil
   })
  })
  mcp.AddTool(server,&mcp.Tool{Name:"audio_import",Description:"Import and fingerprint an existing WAV stem as an immutable external asset, without changing the original WAV."},func(ctx context.Context,req *mcp.CallToolRequest,in audioInput)(*mcp.CallToolResult,response,error){
@@ -257,6 +265,13 @@ func NewServer()*mcp.Server{
     b,e:=midifile.Write(cfg,tracks,ns);if e!=nil{return nil,e}
     return map[string]any{"path":file,"kind":"midi"},os.WriteFile(file,b,0644)
    case "dawproject":
+    original,e:=s.SourceDAWProject();if e!=nil{return nil,e}
+    if original!=nil{
+     originalPath,e:=s.SourceArchive(original);if e!=nil{return nil,e}
+     changed,e:=s.ChangesSinceSource(original);if e!=nil{return nil,e}
+     e=mix.ExportPreserving(originalPath,file,changed)
+     return map[string]any{"path":file,"kind":"dawproject","preservedOriginalEffects":true,"editedNoteTracks":len(changed),"notice":"Existing VST state, routing and embedded assets retained; Cubase importer compatibility still applies"},e
+    }
     assets,e:=s.Assets();if e!=nil{return nil,e}
     waveFiles:=[]dawproject.AudioFile{}
     for _,a:=range assets{
