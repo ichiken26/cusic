@@ -199,15 +199,43 @@ func Apply(source []byte,payload Payload,sourceTrack string)([]byte,Summary,erro
  candidateMixer["mute"]=false
  candidateMixer["solo"]=false
  newGroup,err:=getObject(candidate,"mainGroup");if err!=nil{return nil,result,err}
- replacement:=make([]any,0,len(payload.Notes))
+ // Resolve the Japanese mora allocation before constructing notes.
+ // A lyric such as くゆらす on one long note is split into contiguous
+ // kana-mora note events, with a shorter share for high-vowel devoicing
+ // candidates. All events remain WITHIN the original note range; do not
+ // shift a consonant/note onset earlier than the barline.
  analysisNotes:=make([]phonology.Note,0,len(payload.Notes))
+ for _,n:=range payload.Notes{
+  analysisNotes=append(analysisNotes,phonology.Note{
+   Tick:n.Tick,Duration:n.Duration,Pitch:n.Pitch,Lyric:n.Lyric,
+  })
+ }
+ bpm,beatsPerBar:=timing(root)
+ report:=phonology.Analyze(analysisNotes,bpm,beatsPerBar)
+ replacement:=make([]any,0,len(payload.Notes))
  for i,n:=range payload.Notes{
   onset,err:=blick(n.Tick,payload.PPQ);if err!=nil{return nil,result,fmt.Errorf("note %d onset: %w",i,err)}
   duration,err:=blick(n.Duration,payload.PPQ);if err!=nil{return nil,result,fmt.Errorf("note %d duration: %w",i,err)}
   if duration==0{return nil,result,fmt.Errorf("note %d smaller than 1 blick",i)}
-  replacement=append(replacement,map[string]any{"onset":onset,"duration":duration,"pitch":n.Pitch,
-   "lyrics":n.Lyric,"phonemes":""})
-  analysisNotes=append(analysisNotes,phonology.Note{Tick:n.Tick,Duration:n.Duration,Pitch:n.Pitch,Lyric:n.Lyric})
+  // Never split short notes into zero-length events, or guess pronunciations
+  // of kanji/foreign lyrics. Fall back to the literal lyric in those cases.
+  morae:=report.Findings[i].Morae
+  split:=len(morae)>1
+  if split{
+   for _,m:=range morae{if m.EndTick<=m.StartTick{split=false;break}}
+  }
+  if !split{
+   replacement=append(replacement,map[string]any{"onset":onset,"duration":duration,
+    "pitch":n.Pitch,"lyrics":n.Lyric,"phonemes":""})
+   continue
+  }
+  for _,m:=range morae{
+   startBlick,err:=blick(m.StartTick,payload.PPQ);if err!=nil{return nil,result,err}
+   endBlick,err:=blick(m.EndTick,payload.PPQ);if err!=nil{return nil,result,err}
+   if endBlick<=startBlick{return nil,result,errors.New("invalid zero-length mora subdivision")}
+   replacement=append(replacement,map[string]any{"onset":startBlick,"duration":endBlick-startBlick,
+    "pitch":n.Pitch,"lyrics":m.Text,"phonemes":""})
+  }
  }
  merged:=append(append([]any{},kept...),replacement...)
  sort.SliceStable(merged,func(i,j int)bool{
@@ -221,24 +249,19 @@ func Apply(source []byte,payload Payload,sourceTrack string)([]byte,Summary,erro
  originalMixer,_:=getObject(base,"mixer")
  originalMixer["mute"]=true
  originalMixer["solo"]=false
- root["tracks"]=append(tracks,candidate)
- bpm:=120.0
- beatsPerBar:=4
- if timeline,ok:=root["time"].(map[string]any);ok{
-  if tempos,ok:=timeline["tempo"].([]any);ok&&len(tempos)>0{
-   if tempo,ok:=tempos[0].(map[string]any);ok{
-    if num,ok:=tempo["bpm"].(json.Number);ok{if v,e:=num.Float64();e==nil{bpm=v}}
-   }
-  }
-  if meters,ok:=timeline["meter"].([]any);ok&&len(meters)>0{
-   if meter,ok:=meters[0].(map[string]any);ok{
-    if numerator,ok:=meter["numerator"].(json.Number);ok{if v,e:=numerator.Int64();e==nil&&v>0{beatsPerBar=int(v)}}
-   }
+ // If an edited cusic track from a previous run exists, mute it as well in
+ // the new copy, preventing accidental doubling when applying repeatedly.
+ predecessor:=payload.TrackName+" (cusic)"
+ for _,item:=range tracks{
+  t,ok:=item.(map[string]any);if !ok||t==base{continue}
+  name,_:=t["name"].(string)
+  if name==predecessor||strings.HasPrefix(name,predecessor+" ("){
+   if mx,ok:=t["mixer"].(map[string]any);ok{mx["mute"]=true;mx["solo"]=false}
   }
  }
- report:=phonology.Analyze(analysisNotes,bpm,beatsPerBar)
+ root["tracks"]=append(tracks,candidate)
  result=Summary{SourceTrack:sourceTrack,NewTrack:newName,MutedOriginal:true,ReplacedNotes:replaced,AddedNotes:len(replacement),Report:report,
-  Warning:"Original source track is preserved/muted in new file; copied voice/retakes/curves require review in SynthV. Pronunciation report is advisory and no notes are moved earlier across bars."}
+  Warning:"Original source track is preserved/muted in new file. Multi-mora kana lyrics in new notes are divided within their old note boundaries by phonological timing weights; no original note crosses a barline. Devoicing is a contextual candidate, not a forced deletion of the vowel. Check the cloned track's pronunciation/retakes and pitch curves in SynthV."}
  output,err:=json.MarshalIndent(root,"","  ")
  if err!=nil{return nil,Summary{},err}
  return append(output,'\n'),result,nil
