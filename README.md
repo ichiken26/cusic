@@ -59,6 +59,56 @@ cusic analyze --max-windows 512
 
 ---
 
+## DAWprojectのエフェクト・音源設定を保持する
+
+Cubaseの既存曲では、**DAWprojectから取り込んだWAV/ノートだけで新規DAWprojectを作り直さない**。現在は元のDAWprojectを `.cusic/source-<SHA256>.dawproject` に丸ごと保存して、**プラグイン設定、VST3 State、チャンネルルーティング、オートメーション、録音データを原本から引き継ぐ**。
+
+~~~bash
+cusic import original.dawproject
+cusic source status
+# 音符を編集後でも、元のデバイス設定を土台にして書き出す
+cusic export --format dawproject --out edit-with-effects.dawproject
+~~~
+
+- 音符未変更なら元のDAWprojectの**バイト単位コピー**を生成する。編集した場合は、シンプルな1クリップのノート配置に限り、元のZIPのプラグイン状態を保持したまま音符だけ更新する。
+- 複雑なノートクリップ（複数領域、ピッチ・ノート表情、非ゼロplayStart等）や新規ノートトラックを安全に反映できない場合は、**エラーにして元のVST状態を守る**。VSTを消して書き直すことはしない。
+- 以前のcusicで取り込んだ曲は、元のDAWprojectを保持しているなら `cusic source attach --from original.dawproject` を使う。曲のテンポ・拍子・音符が一致する場合だけ紐付ける。**`cusic init` のやり直しは不要**。
+- Cubaseのネイティブ `.cpr` は直接操作しない。DAWprojectに含まれていない情報、ローカルで未インストールのVST3、Kontakt内部の独自マルチ出力設定は完全再現を保証できない。Cubase側で新しいプロジェクトとして開いて動作確認する。
+
+### エフェクトの調査・編集
+
+~~~bash
+cusic effects inspect --from original.dawproject
+cusic effects plan --from original.dawproject --plan effects.json
+cusic effects apply --from original.dawproject --plan effects.json --out effects-edited.dawproject --confirm
+~~~
+
+`effects.json` の例（汎用DAWproject Compressorを追加）：
+
+~~~json
+{
+  "operations": [
+    {
+      "action": "insertCompressor",
+      "track": "Bass",
+      "compressor": {
+        "attackMs": 12,
+        "releaseMs": 110,
+        "ratioPercent": 50,
+        "thresholdDb": -18,
+        "outputGainDb": 2
+      }
+    }
+  ]
+}
+~~~
+
+`ratioPercent` はDAWproject汎用コンプレッサー形式のパラメーター値（0〜100%）であり、**4:1という比率指定とは別**。アタック/リリースはミリ秒指定を内部で秒に変換する。
+
+対応する操作：`insertCompressor`、`updateCompressor`、`cloneVst3`（存在するVST3オーディオFXと状態を複製）、`setParameters`（不透明Stateの無いVST3で明示的にエクスポートされたパラメーターに限る）、`replaceState`（同一VST3用の互換性を確認した状態ファイルが必要）。
+
+**すべてのVST3に任意のノブ値を直接書き込めるわけではない**。Kontakt等のベンダー固有の不透明な状態バイナリは解析・改造しない。Claude Code/Codexからも `effects_inspect`・`effects_plan`・`effects_apply`・`kontakt_diagnose`・`project_source_status`・`project_source_attach` をMCP経由で利用できる（適用時は承認必須）。
+
 ## できること
 
 | 入出力 | コマンド | 対応範囲 |
