@@ -117,6 +117,23 @@ The user gives free-form instructions and does NOT need to learn cusic commands.
 `
  guide:=filepath.Join(absolute,"CUSIC_WORKFLOW.md")
  if _,e:=os.Stat(guide);errors.Is(e,os.ErrNotExist){if e=os.WriteFile(guide,[]byte(workflow),0644);e!=nil{return e}}
+ // Update previously generated project guidance without replacing user edits.
+ if existing,e:=os.ReadFile(guide);e==nil && !strings.Contains(string(existing),"project_source_status"){
+  note:=\`
+## cusic effect/source preservation
+Before exporting or editing an existing DAWproject, call project_source_status.
+If a legacy import lacks its original source archive, request permission and
+use project_source_attach with the original DAWproject; do not recreate only
+notes/WAV and discard VST instrument/effect settings.
+effects_inspect and kontakt_diagnose inspect without changes. effects_plan
+previews an operation and effects_apply requires user approval and writes a
+NEW DAWproject. Unknown vendor VST3 state cannot be guessed or synthesized.
+\`
+  f,e:=os.OpenFile(guide,os.O_WRONLY|os.O_APPEND,0644);if e!=nil{return e}
+  _,writeErr:=f.WriteString(note);closeErr:=f.Close()
+  if writeErr!=nil{return writeErr}
+  if closeErr!=nil{return closeErr}
+ }else if e!=nil{return e}
  agents:=filepath.Join(absolute,"AGENTS.md")
  if _,e:=os.Stat(agents);errors.Is(e,os.ErrNotExist){
   _=os.WriteFile(agents,[]byte("# Agent instructions\n\nRead CUSIC_WORKFLOW.md before making changes to this music project.\n"),0644)
