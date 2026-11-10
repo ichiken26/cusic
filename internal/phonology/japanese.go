@@ -187,7 +187,7 @@ func Analyze(input []Note,bpm float64,beatsPerBar int)Report{
     ms[j].Devoicing="likely"
    }
   }
-  if len(ms)>1 && float64(n.Duration)/float64(len(ms))<PPQ/4 {
+  if len(ms)>1 && float64(n.Duration)/float64(len(ms))<float64(PPQ)/4 {
    result.Crowded=true
    result.Suggestions=append(result.Suggestions,"Multiple morae are crowded into this note; split/move the phoneme boundaries WITHIN the existing note duration. Do not extend a vowel into the next bar.")
   }
