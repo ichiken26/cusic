@@ -109,7 +109,7 @@ func ChooseTemplate(dir, requested, explicit string, allowFallback bool)(Templat
   matched:=false
   for _,v:=range voices{if voiceMatch(desired,v.Voice){chosen=v;matched=true;break}}
   if !generic && requested!="" && !matched && !allowFallback{return out,fmt.Errorf("requested voice %q not found in template %s; add a VSQX containing that voice or pass allowFallback",requested,explicit)}
-  out=TemplateChoice{File:abs,Voice:chosen.Voice,Requested:requested,Fallback:!generic&&requested!=""&&!matched}
+  out=TemplateChoice{File:abs,Voice:chosen.Voice,Requested:requested,Fallback:requested!=""&&!matched}
  }else{
   rows,err:=ScanVoices(dir);if err!=nil{return out,err}
   if len(rows)==0{return out,errors.New("no VOCALOID4 VSQX in project: export ONE VSQX from Piapro Studio with an installed voicebank; cusic will reuse it automatically afterwards")}
@@ -121,10 +121,12 @@ func ChooseTemplate(dir, requested, explicit string, allowFallback bool)(Templat
    for _,v:=range rows{names=append(names,v.Voice)}
    return out,fmt.Errorf("voice %q not found in project VSQX; available: %s; re-export with that voice or use allowFallback to reuse an available voice",requested,strings.Join(names,", "))
   }
-  out=TemplateChoice{File:chosen.File,Voice:chosen.Voice,Requested:requested,Fallback:!generic&&requested!=""&&!matched}
+  out=TemplateChoice{File:chosen.File,Voice:chosen.Voice,Requested:requested,Fallback:requested!=""&&!matched}
  }
  if out.Fallback{
-  out.Warning=fmt.Sprintf("Requested voice %q is unavailable in project VSQX; exported with real voice %q instead. Select Original in Piapro after import if installed.",requested,out.Voice)
+  wanted:=requested
+  if generic{wanted="Original (preferred for generic Miku request)"}
+  out.Warning=fmt.Sprintf("Requested voice %q is unavailable in project VSQX; exported with REAL voice %q instead. Select Original in Piapro after import if installed.",wanted,out.Voice)
  }
  return out,nil
 }
