@@ -57,3 +57,21 @@ func TestExistingVsqxBreathEditPreservesAutomation(t *testing.T){
  if err!=nil{t.Fatal(err)}
  if !bytes.Contains(updated,[]byte("<p>br3</p>"))||!bytes.Contains(updated,[]byte("PIT")){t.Fatal("breath edit lost automation")}
 }
+
+func TestAutoExportFromComplexRealWorldVsqx(t *testing.T){
+ complex:=strings.Replace(voiceFixture,
+  "</masterTrack>", "<tempo><t>480</t><v>13200</v></tempo><timeSig><m>6</m><nu>3</nu><de>4</de></timeSig></masterTrack>",1)
+ complex=strings.Replace(complex,"</vsPart>",`</vsPart><vsPart><t>9600</t><playTime>1920</playTime><note><t>0</t><dur>480</dur><n>70</n></note></vsPart>`,1)
+ complex=strings.Replace(complex,"</vsTrack></vsq4>",`</vsTrack><vsTrack><name>Other</name><vsPart><t>7680</t><playTime>1920</playTime></vsPart></vsTrack></vsq4>`,1)
+ track:=store.Track{ID:"new",Name:"SideVocal",Kind:"vocal"}
+ notes:=[]store.Note{{ID:"1",TrackID:"new",Tick:0,Duration:480,Pitch:61,Velocity:100,Lyric:"あ"}}
+ out,_,err:=ExportForVoice([]byte(complex),"Original",false,
+  store.Settings{Name:"Song",Tempo:184,MeterNum:4,MeterDen:4,PPQ:480},track,notes)
+ if err!=nil{t.Fatal(err)}
+ root,err:=parse(out);if err!=nil{t.Fatal(err)}
+ if len(root.all("vsTrack"))!=1{t.Fatal("unused vocal tracks were not removed from NEW export")}
+ if len(root.all("vsTrack")[0].all("vsPart"))!=1{t.Fatal("unused parts remain")}
+ master:=root.child("masterTrack")
+ if len(master.all("tempo"))!=1||len(master.all("timeSig"))!=1{t.Fatal("template tempo/meter not normalized")}
+ if master.child("tempo").text("v")!="18400"{t.Fatal("export wrong BPM")}
+}
