@@ -179,6 +179,14 @@ func Analyze(input []Note,bpm float64,beatsPerBar int)Report{
    ms[j].EndTick=end
    cursor=end
   }
+  // A single short unvoiced phrase-final す may suppress its vowel.
+  // For multi-mora lyrics use that mora's *allocated* span, not the entire
+  // note duration (otherwise くゆらす incorrectly looks like a sustained す).
+  for j:=range ms{
+   if ms[j].Devoicing=="possible" && ms[j].EndTick-ms[j].StartTick<=PPQ/2 {
+    ms[j].Devoicing="likely"
+   }
+  }
   if len(ms)>1 && float64(n.Duration)/float64(len(ms))<PPQ/4 {
    result.Crowded=true
    result.Suggestions=append(result.Suggestions,"Multiple morae are crowded into this note; split/move the phoneme boundaries WITHIN the existing note duration. Do not extend a vowel into the next bar.")
