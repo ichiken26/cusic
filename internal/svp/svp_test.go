@@ -29,7 +29,7 @@ const edits=`{"version":1,"trackId":"cusic-teto","trackName":"Teto","ppq":480,
 func TestApplyClonesNewTrackAndMutesOnlyOriginal(t *testing.T){
  p,err:=LoadPayload([]byte(edits));if err!=nil{t.Fatal(err)}
  data,result,err:=Apply([]byte(fixture),p,"Teto");if err!=nil{t.Fatal(err)}
- if !result.MutedOriginal||result.ReplacedNotes!=1||result.AddedNotes!=1{t.Fatalf("invalid summary %+v",result)}
+ if !result.MutedOriginal||result.ReplacedNotes!=1||result.AddedNotes!=4{t.Fatalf("invalid summary %+v",result)}
  root,err:=decode(data);if err!=nil{t.Fatal(err)}
  tracks,err:=getTracks(root);if err!=nil{t.Fatal(err)}
  if len(tracks)!=3{t.Fatalf("expected 3 tracks, got %d",len(tracks))}
@@ -45,7 +45,16 @@ func TestApplyClonesNewTrackAndMutesOnlyOriginal(t *testing.T){
  if originalNotes[0].(map[string]any)["lyrics"]!="す"{t.Fatal("original tuned note was deleted")}
  if originalNotes[0].(map[string]any)["attributes"].(map[string]any)["manualRetake"]!="KEEP"{t.Fatal("original vocal retake lost")}
  cloneNotes:=replacement["mainGroup"].(map[string]any)["notes"].([]any)
- if len(cloneNotes)!=1||cloneNotes[0].(map[string]any)["lyrics"]!="くゆらす"{t.Fatal("edited notes not applied")}
+ if len(cloneNotes)!=4||cloneNotes[0].(map[string]any)["lyrics"]!="く"||cloneNotes[3].(map[string]any)["lyrics"]!="す"{t.Fatal("mora-aware edited notes not applied")}
+ var previousEnd int64
+ for i,item:=range cloneNotes{
+  note:=item.(map[string]any)
+  begin,err:=noteBlick(note,"onset");if err!=nil{t.Fatal(err)}
+  dur,err:=noteBlick(note,"duration");if err!=nil{t.Fatal(err)}
+  if i>0&&begin!=previousEnd{t.Fatal("mora timing discontinuity")}
+  previousEnd=begin+dur
+ }
+ if previousEnd!=BlickPerQuarter{t.Fatal("mora notes exceeded initial note duration")}
  if len(result.Report.Findings)!=1||len(result.Report.Findings[0].Morae)!=4{t.Fatal("phonological report missing くゆらす")}
  if result.Report.Findings[0].Morae[0].Devoicing!=""{t.Fatal("wrongly devoiced く before ゆ")}
  if result.Report.Findings[0].Morae[3].Devoicing==""{t.Fatal("did not flag phrase-final す")}
