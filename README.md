@@ -30,7 +30,7 @@ cusic MCPには `project_inventory`、`project_status`、`track_inspect`、`proj
 
 - `vocal_backup_source` で元の `.vsqx` / `.svp` / `.ppsf` を**SHA-256付きでバイト単位バックアップ**。これは元のピッチ・表情・リテイクを丸ごと復元できる。
 - ミク：`vocal_vsqx_edit_existing` で**既存音符の音高・歌詞だけ**新しいVSQXに変更。元の`mCtrl`や`nStyle`、タイミング、音源識別子を保持。
-- テト：`synthv/src/safe.ts` からビルドしたES5.1のJSで、**既存ノートを削除せず**音高・歌詞だけ変更。TypeScript＋Zod検証はホストで実行、SV2上では生成JSを実行して**別名SVPとして保存**。実機での挙動は未確認。
+- テト：**`cusic svp apply` で元のSVPを直接読み込み、編集版を新トラックとして追加し、元トラックをミュート**。元のノート、歌声設定、調声とリテイクはそのまま残す。従来のTypeScript/SynthV用JSによる部分編集も引き続き使用できる。SynthV 2実機での読み込み・発音テストは未実施。
 - 既存の音符の長さやタイミングを変えた場合にカーブやリテイクを安全移設する機能は未実装。歌唱調声全体をcusicのSQLiteに完全同期しているわけではない。旧`prepare.js`の完全置換は**新規フレーズ専用**。
 
 詳しい利用手順・制約は [docs/agent-first.md](docs/agent-first.md) を参照。
@@ -123,7 +123,7 @@ cusic effects apply --from original.dawproject --plan effects.json --out effects
 | Cubaseから取り込み | `cusic import edit.dawproject` | DAWproject内の基本的な音符クリップ・WAVを新規トラックとして読み込む |
 | Cubase編集の同期 | `cusic sync plan/pull --from edit.dawproject` | 同名の**楽器トラックの音符のみ**、手動・差分確認付き同期 |
 | 初音ミク V4X | `cusic vocal voices` → `cusic vocal apply` → `cusic export --format vsqx --track Miku --out miku.vsqx` | 声色情報を曲フォルダのVSQXから自動取得。促音・ブレスと非破壊のノート差分変更に対応 |
-| 重音テト SV2 | `cusic export --format synthv --track Teto --bars 1:8 --out teto.json` | TypeScript + Zod検証→ビルド済みES5.1 JSでSynthVへ反映 |
+| 重音テト SV2 | `cusic svp apply --from old.svp --track Teto --out new.svp` | 既存SVP内のTetoを複製、元トラックをミュートし新トラックへ自動反映。言語学的なモーラ分割つき |
 | 履歴 | `cusic status/log/diff/revert` | SQLiteトランザクション単位の更新履歴。revertはHEADのみ |
 
 **Cubaseの `.cpr` ファイルを直接変更したり、画面をクリックして操作したり、編集中のCubaseとリアルタイム同期したりはしない。**
@@ -341,17 +341,40 @@ cusic export --format vsqx --track SideVocal --voice Original --out side-vocal.v
 
 Claude Code / Codex からは `vocal_voices` → `vocal_notes_apply` → `score_export(format="vsqx")` でこの処理を自動実行できる。既存の調声済みVSQXは以前と同様に `vocal_vsqx_edit_existing` で必要な音高・歌詞だけ変更し、ピッチコントローラやノートスタイルを保持する。**既存の元ファイルは上書きしない**。
 
-## テト SV2（Synthesizer V Studio 2 Pro）
+## テト SV2：SVPへ直接自動適用（原本・調声は保持）
+
+**SynthVのJavaScriptを生成・手動実行しなくても、新しいSVPを直接作れる。** 曲フォルダでcusicが管理しているTetoの音符・歌詞を使い、既存SVPのTetoを複製した新しいトラックに適用する。**元トラックは新しいSVP内でミュート**し、元のSVPファイル自体は変更しない。
 
 ~~~bash
-cusic export --format synthv --track Teto --bars 1:8 --out /absolute/path/teto.json
+# 既存SVPのテトと編集予定の歌詞・音符を調査
+cusic vocal analyze --from original.svp --track Teto
+cusic svp plan --from original.svp --track Teto
+# 手作業のMIDI書き出し・JSビルド不要
+cusic svp apply --from original.svp --track Teto --out updated-teto.svp
+~~~
+
+- 新トラックは元のTetoから複製するため、**使用歌声ライブラリとトラック側の設定・パラメーターカーブを引き継ぐ**。元トラックは音符・発音・調声・リテイクをそのまま保った状態でミュートする。元のSVPと別のトラックには触れない。
+- 新しいノートの歌詞がひらがなで複数モーラ（例：`くゆらす`）の場合、音韻の重みに応じてノートを分割する。**分配先は必ず元のノートの開始から終了まで**。小節頭より前にノートを無理に移動させない。
+- 母音無声化の推定対象は、無声子音に挟まれた /i・u/、または休止直前の無声子音後の短い /i・u/。たとえば`くゆらす`では、`く`の後は有声の /j/ に続くため単純に無声化せず、最後の`す`は無声化候補として報告。**歌唱で長く伸ばす母音まで削除しない**。
+- 子音の先行（preutterance）で小節境界を越えて聞こえる可能性がある音は、音素の先行量・強さの調整候補として報告。音源WAVとの強制アラインメントはまだ未実装なので、**音が実際に境界を越えたという断定ではない**。
+- 元のノートに特殊な調声やカーブがある場合、新規トラックのノート分割でそのまま一致するとは限らない。**SynthV 2 Proで新規SVPを開いて試聴して確認**してね。未対応の音節や短すぎるノートは推測で分割しない。
+- ソースSVPのトラック名とcusicのトラック名が異なる場合は `--source-track "元トラック名"` を追加。従来の `cusic export --format synthv` とSynthV用JavaScriptも後方互換として残す。
+- Claude Code/Codexでは、MCPの `vocal_phonology_analyze` → `svp_clone_plan` → `svp_clone_apply` で同じ操作が可能。書き出し先は必ず新ファイル名、適用は承認必須。Windows/Mac共通。
+
+### 補足：日本語の発音をもっと自然にするために
+
+`cusic vocal analyze --track Teto` は cusicの歌詞をモーラ単位に分割し、母音無声化・音素の先行リスク・拍内割当の偏りをJSONで報告する。これは**言語学に基づく推定**であり、実際の人間の発音を波形から計測した結果ではない。特に母音無声化は音楽的アクセントや歌唱スタイルで変わるため、強制的な音素削除は行わない。
+
+従来のSynthV 2 Proスクリプト連携が必要なら以下の手順も引き続き使用できる。
+
+~~~bash
+cusic export --format synthv --track Teto --bars 1:8 --out teto.json
 cd /path/to/cusic/synthv
 npm install
 npm run build
 node dist/host/prepare.js /absolute/path/teto.json --out /absolute/path/cusic-teto.js
 ~~~
 
-JSの作成前にTypeScript+Zodで入力を検証し、SynthVスクリプトランタイムで動かす成果物は**ES5.1にコンパイルしたJS**。SynthVのスクリプトフォルダに配置し、エディタから選択した**同名トラックのmain group**に実行する。範囲外や境界を跨ぐノートは拒否する。対象範囲内の既存の調声は失われることがあるので、SynthVプロジェクトのバックアップを推奨する。
 
 ## 開発・制約
 
