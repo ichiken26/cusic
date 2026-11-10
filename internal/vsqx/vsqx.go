@@ -57,6 +57,15 @@ func (e *elem)encode(enc *xml.Encoder)error{
  return enc.EncodeToken(xml.EndElement{Name:name})
 }
 func shortPhoneme(s string)(string,bool){
+ // VSQX/Piapro V4X special lyrics. Not every voicebank implements breath
+ // recordings; the user must check the rendered voice.
+ special:=strings.ToLower(strings.TrimSpace(s))
+ switch special{
+ case "っ","ッ","sil","[sil]","pau","[pau]":return "Sil",true
+ case "br1","br2","br3","br4","br5":return special,true
+ case "ー","-":return "-",true
+ }
+
  // Simple syllables. Complex Japanese lyrics need review in Piapro Studio.
  mapKana:=map[string]string{
   "あ":"a","い":"i","う":"M","え":"e","お":"o",
@@ -196,4 +205,20 @@ func EditExisting(source []byte, edits []NoteEdit)([]byte,error){
  encoder:=xml.NewEncoder(out);if err:=root.encode(encoder);err!=nil{return nil,err}
  if err:=encoder.Flush();err!=nil{return nil,err}
  return out.Bytes(),nil
+}
+
+func encodeVSQX(root *elem)([]byte,error){
+ out:=&bytes.Buffer{}
+ out.WriteString(xml.Header)
+ encoder:=xml.NewEncoder(out)
+ if err:=root.encode(encoder);err!=nil{return nil,err}
+ if err:=encoder.Flush();err!=nil{return nil,err}
+ return out.Bytes(),nil
+}
+// ExportForVoice reuses registered voicebank metadata, never guesses IDs.
+func ExportForVoice(template []byte,voice string,allowFallback bool,settings store.Settings,track store.Track,notes []store.Note)([]byte,VoiceTemplate,error){
+ resolved,selected,err:=SelectVoice(template,voice,allowFallback)
+ if err!=nil{return nil,selected,err}
+ data,err:=Export(resolved,settings,track,notes)
+ return data,selected,err
 }
