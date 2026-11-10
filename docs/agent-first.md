@@ -39,6 +39,8 @@ MCPの `tempo_analyze`、`tempo_confirm`、`tempo_render` も使えます。後�
 | 汎用Compressorの追加・編集、既存VST3 FXの複製・プリセット状態差替え | MCPで対応範囲を確認、適用前に承認 |
 | Kontakt外部チャンネル・パン・ルーティングの診断 | DAWprojectのメタデータから読める範囲で自動 |
 | VSQX/SVP/PPSFの原本バックアップ | MCPで自動 |
+| 初音ミクの声色探索とテンプレート自動選択 | `vocal_voices` と `score_export` で自動。実際のVSQXの声色情報を再利用 |
+| ボーカルトラック作成・歌詞付きノートの追加・部分変更 | `vocal_notes_apply` で同時に処理、既存のフレーズは保持 |
 | 既存VSQXの歌詞・音高のみ変更（元のコントローラ残存） | MCPで新ファイル生成 |
 | 既存SV2の歌詞・音高のみ変更（ノート再生成なし） | TS+Zodツール経由、SynthV内で手動実行 |
 | CubaseからDAWprojectを出す・戻す | **手動** |
@@ -47,7 +49,7 @@ MCPの `tempo_analyze`、`tempo_confirm`、`tempo_render` も使えます。後�
 
 ## MCPで公開しているツール
 
-`project_inventory`、`project_initialize`、`project_status`、`project_import`、`project_source_status`、`project_source_attach`、`effects_inspect`、`effects_plan`、`effects_apply`、`kontakt_diagnose`、`track_create`、`track_inspect`、`patch_apply`、`history`、`history_revert_head`、`audio_import`、`audio_list`、`mix_analyze_stems`、`mix_plan`、`mix_apply`、`score_export`、`cubase_sync_plan`、`cubase_sync_apply`、`vocal_source_status`、`vocal_backup_source`、`vocal_vsqx_edit_existing`。
+`project_inventory`、`project_initialize`、`project_status`、`project_import`、`project_source_status`、`project_source_attach`、`effects_inspect`、`effects_plan`、`effects_apply`、`kontakt_diagnose`、`track_create`、`track_inspect`、`patch_apply`、`history`、`history_revert_head`、`audio_import`、`audio_list`、`mix_analyze_stems`、`mix_plan`、`mix_apply`、`score_export`、`cubase_sync_plan`、`cubase_sync_apply`、`vocal_source_status`、`vocal_backup_source`、`vocal_vsqx_edit_existing`、`vocal_voices`、`vocal_notes_apply`。
 
 ## ミックスでの重要な制約
 
@@ -58,6 +60,17 @@ SQLiteに登録したWAVは曲頭からのオーディオステムとして扱�
 すでに古いcusicで取り込んだ曲は `cusic source attach --from original.dawproject`、または `project_source_attach` で元ファイルを紐付ける。自動で保存されたかは `cusic source status` で確認できる。
 
 エフェクト編集は `effects_inspect` → `effects_plan` → `effects_apply` の順。汎用Compressorの挿入、既存VST3 FXとStateの複製、明示的な互換状態ファイルによる更新などをサポートするが、**Kontaktの独自内部ルーティングやVST3の不透明なバイナリ状態を解読して任意ノブを書き換えるものではない**。Cubaseで利用不可のプラグインはDAWproject内に状態を保持してもロードできない。
+
+## ミク V4Xの制作・書き出し（テンプレートを手指定しない）
+
+1. `vocal_voices` で曲フォルダのVSQXから実際の声色（Original/Solid/Sweetなど）を検出する。
+2. `vocal_notes_apply` でSideVocalの新規作成と歌詞付きノートの登録を**1回のMCPコールで実行**。既存ノートの変更にはノートIDを指定し、無関係なフレーズを消さない。
+3. `score_export` に `format: "vsqx"`、`track: "SideVocal"`、`voice: "Original"`、`out: "side-vocal.vsqx"` を渡す。`template` は省略可能。
+4. 本物のOriginal識別情報が見つからないとき、実在する他のボイスバンクを使って書き出し、実際の声色と警告をユーザーへ必ず報告する。架空のOriginal IDを生成しない。
+
+`っ` は無声音、`br1`〜`br5` はブレス指定としてVSQXに出力する。ただしPiaproでの発音結果は実際のボイスバンクと歌唱設定に依存する。**まだ実際のVSQXが1つもない場合のみ、Piaproから声色を含むVSQXを1つ書き出す必要がある。** その後のテンプレート指定は自動。
+
+既存の調声済みVSQXは上書きしない。ノートIDを使ったcusicの差分編集と、原本のmCtrl/nStyleを維持する `vocal_vsqx_edit_existing` は用途が異なる。前者はcusicで管理する新しいボーカルフレーズ、後者はすでに調声されたVSQX向け。
 
 ## 歌声調声保護の重要な制約
 
