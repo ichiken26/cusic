@@ -389,8 +389,8 @@ func InspectDevices(source string)(DeviceReport,error){
     if p.Name==""{p.Name=dev.attr("name")}
     if p.StatePath!=""{p.StatePresent=zipContains(r,p.StatePath)}
     if params:=dev.child("Parameters");params!=nil{
-     for _,node:=range params.Children{
-      if e,ok:=node.(*node);ok{
+     for _,entry:=range params.Children{
+      if e,ok:=entry.(*node);ok{
        key:=e.attr("name");if key==""{key=e.attr("id")}
        if key!=""{p.Parameters[key]=e.attr("value")}
       }
