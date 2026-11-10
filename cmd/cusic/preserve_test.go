@@ -3,6 +3,7 @@ package main
 import (
  "archive/zip"
  "bytes"
+ "io"
  "os"
  "path/filepath"
  "strings"
@@ -57,8 +58,7 @@ func TestCLIImportExportPreservesDAWProjectEffects(t *testing.T){
   if strings.HasPrefix(part.Name,"plugins/"){foundState++}
   if part.Name=="project.xml"{
    source,err:=part.Open();if err!=nil{t.Fatal(err)}
-   b:=make([]byte,part.UncompressedSize64);_,err=source.Read(b);source.Close()
-   if err!=nil && err.Error()!="EOF"{t.Fatal(err)}
+   b,err:=io.ReadAll(source);source.Close();if err!=nil{t.Fatal(err)}
    if !strings.Contains(string(b),`key="43"`)||!strings.Contains(string(b),"Kontakt"){t.Fatal("patch lost notes or Kontakt state")}
   }
  }
