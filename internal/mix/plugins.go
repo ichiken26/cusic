@@ -25,7 +25,7 @@ import (
 type CompressorSettings struct {
  AttackMS float64 `json:"attackMs"`
  ReleaseMS float64 `json:"releaseMs"`
- Ratio float64 `json:"ratio"`
+ RatioPercent float64 `json:"ratioPercent"`
  ThresholdDB float64 `json:"thresholdDb"`
  OutputGainDB float64 `json:"outputGainDb"`
 }
@@ -204,11 +204,11 @@ func putDevice(channel *node,device *node){
 }
 func validCompressor(c *CompressorSettings)error{
  if c==nil{return errors.New("compressor settings required")}
- values:=[]float64{c.AttackMS,c.ReleaseMS,c.Ratio,c.ThresholdDB,c.OutputGainDB}
+ values:=[]float64{c.AttackMS,c.ReleaseMS,c.RatioPercent,c.ThresholdDB,c.OutputGainDB}
  for _,v:=range values{if math.IsNaN(v)||math.IsInf(v,0){return errors.New("non-finite compressor value")}}
  if c.AttackMS<0.1||c.AttackMS>1000||c.ReleaseMS<1||c.ReleaseMS>5000||
-   c.Ratio<1||c.Ratio>30||c.ThresholdDB< -100||c.ThresholdDB>0||
-   c.OutputGainDB< -24||c.OutputGainDB>24{return errors.New("compressor out of range (attack 0.1..1000ms, release 1..5000ms, ratio 1..30, threshold -100..0dB, gain -24..24dB)")}
+   c.RatioPercent<0||c.RatioPercent>100||c.ThresholdDB< -100||c.ThresholdDB>0||
+   c.OutputGainDB< -24||c.OutputGainDB>24{return errors.New("compressor out of range (attack 0.1..1000ms, release 1..5000ms, ratioPercent 0..100, threshold -100..0dB, gain -24..24dB)")}
  return nil
 }
 func realDeviceParam(name string,value float64,unit,id string)*node{
@@ -220,20 +220,22 @@ func compressorNode(id string,c *CompressorSettings)*node{
  enabled:=element("Enabled");enabled.setAttr("value","true");enabled.setAttr("id",id+"_enabled")
  n.Children=[]any{
   enabled,
-  realDeviceParam("Attack",c.AttackMS,"milliseconds",id+"_attack"),
+  realDeviceParam("Attack",c.AttackMS/1000,"seconds",id+"_attack"),
   realDeviceParam("OutputGain",c.OutputGainDB,"decibel",id+"_makeup"),
-  realDeviceParam("Ratio",c.Ratio,"linear",id+"_ratio"),
-  realDeviceParam("Release",c.ReleaseMS,"milliseconds",id+"_release"),
+  realDeviceParam("Ratio",c.RatioPercent,"percent",id+"_ratio"),
+  realDeviceParam("Release",c.ReleaseMS/1000,"seconds",id+"_release"),
   realDeviceParam("Threshold",c.ThresholdDB,"decibel",id+"_threshold"),
  }
  return n
 }
 func mutateCompressor(device *node,c *CompressorSettings){
- vals:=map[string]float64{"Attack":c.AttackMS,"Release":c.ReleaseMS,"Ratio":c.Ratio,"Threshold":c.ThresholdDB,"OutputGain":c.OutputGainDB}
+ vals:=map[string]float64{"Attack":c.AttackMS/1000,"Release":c.ReleaseMS/1000,"Ratio":c.RatioPercent,"Threshold":c.ThresholdDB,"OutputGain":c.OutputGainDB}
  for name,value:=range vals{
   n:=device.child(name)
   if n==nil{
-   n=realDeviceParam(name,value,"linear",device.attr("id")+"_"+strings.ToLower(name))
+   unit:="decibel"
+   if name=="Attack"||name=="Release"{unit="seconds"}else if name=="Ratio"{unit="percent"}
+   n=realDeviceParam(name,value,unit,device.attr("id")+"_"+strings.ToLower(name))
    device.Children=append(device.Children,n)
   }else{n.setAttr("value",strconv.FormatFloat(value,'f',-1,64))}
  }
