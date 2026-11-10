@@ -176,7 +176,7 @@ func Apply(source []byte,payload Payload,sourceTrack string)([]byte,Summary,erro
  if sourceTrack==""{return nil,result,errors.New("source track name required")}
  root,err:=decode(source);if err!=nil{return nil,result,err}
  tracks,err:=getTracks(root);if err!=nil{return nil,result,err}
- _,base,err:=findSource(tracks,sourceTrack);if err!=nil{return nil,result,err}
+ sourceIndex,base,err:=findSource(tracks,sourceTrack);if err!=nil{return nil,result,err}
  mainGroup,err:=getObject(base,"mainGroup");if err!=nil{return nil,result,err}
  rawNotes,ok:=mainGroup["notes"].([]any);if !ok{return nil,result,errors.New("source track lacks mainGroup.notes")}
  if _,err=getObject(base,"mixer");err!=nil{return nil,result,err}
@@ -252,8 +252,8 @@ func Apply(source []byte,payload Payload,sourceTrack string)([]byte,Summary,erro
  // If an edited cusic track from a previous run exists, mute it as well in
  // the new copy, preventing accidental doubling when applying repeatedly.
  predecessor:=payload.TrackName+" (cusic)"
- for _,item:=range tracks{
-  t,ok:=item.(map[string]any);if !ok||t==base{continue}
+ for i,item:=range tracks{
+  t,ok:=item.(map[string]any);if !ok||i==sourceIndex{continue}
   name,_:=t["name"].(string)
   if name==predecessor||strings.HasPrefix(name,predecessor+" ("){
    if mx,ok:=t["mixer"].(map[string]any);ok{mx["mute"]=true;mx["solo"]=false}
