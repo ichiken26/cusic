@@ -103,8 +103,15 @@ func blick(tick,ppq int64)(int64,error){
  return tick*BlickPerQuarter/ppq,nil
 }
 func noteBlick(raw map[string]any,field string)(int64,error){
- num,ok:=raw[field].(json.Number);if !ok{return 0,fmt.Errorf("SVP note has invalid %s",field)}
- value,err:=num.Int64();if err!=nil||value<0{return 0,fmt.Errorf("SVP note has invalid %s",field)}
+ var value int64
+ switch n:=raw[field].(type){
+ case json.Number:
+  parsed,err:=n.Int64();if err!=nil{return 0,fmt.Errorf("SVP note has invalid %s: %w",field,err)};value=parsed
+ case int64:value=n
+ case int:value=int64(n)
+ default:return 0,fmt.Errorf("SVP note has invalid %s",field)
+ }
+ if value<0{return 0,fmt.Errorf("SVP note has negative %s",field)}
  return value,nil
 }
 func findSource(tracks []any,name string)(int,map[string]any,error){
