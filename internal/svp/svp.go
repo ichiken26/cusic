@@ -192,9 +192,13 @@ func Apply(source []byte,payload Payload,sourceTrack string)([]byte,Summary,erro
  if err=ensureNewGroupIdentity(candidate);err!=nil{return nil,result,err}
  newName:=title(tracks,payload.TrackName)
  candidate["name"]=newName
- if order,ok:=base["dispOrder"].(json.Number);ok{
-  v,parseErr:=order.Int64();if parseErr==nil{candidate["dispOrder"]=v+1}
+ maxOrder:=int64(len(tracks)-1)
+ for _,entry:=range tracks{
+  t,ok:=entry.(map[string]any);if !ok{continue}
+  v,ok:=t["dispOrder"].(json.Number);if !ok{continue}
+  if number,e:=v.Int64();e==nil&&number>maxOrder{maxOrder=number}
  }
+ candidate["dispOrder"]=maxOrder+1
  candidateMixer,err:=getObject(candidate,"mixer");if err!=nil{return nil,result,err}
  candidateMixer["mute"]=false
  candidateMixer["solo"]=false
@@ -204,8 +208,10 @@ func Apply(source []byte,payload Payload,sourceTrack string)([]byte,Summary,erro
  // kana-mora note events, with a shorter share for high-vowel devoicing
  // candidates. All events remain WITHIN the original note range; do not
  // shift a consonant/note onset earlier than the barline.
- analysisNotes:=make([]phonology.Note,0,len(payload.Notes))
- for _,n:=range payload.Notes{
+ sortedNotes:=append([]Note(nil),payload.Notes...)
+ sort.SliceStable(sortedNotes,func(i,j int)bool{return sortedNotes[i].Tick<sortedNotes[j].Tick})
+ analysisNotes:=make([]phonology.Note,0,len(sortedNotes))
+ for _,n:=range sortedNotes{
   analysisNotes=append(analysisNotes,phonology.Note{
    Tick:n.Tick,Duration:n.Duration,Pitch:n.Pitch,Lyric:n.Lyric,
   })
@@ -213,7 +219,7 @@ func Apply(source []byte,payload Payload,sourceTrack string)([]byte,Summary,erro
  bpm,beatsPerBar:=timing(root)
  report:=phonology.Analyze(analysisNotes,bpm,beatsPerBar)
  replacement:=make([]any,0,len(payload.Notes))
- for i,n:=range payload.Notes{
+ for i,n:=range sortedNotes{
   onset,err:=blick(n.Tick,payload.PPQ);if err!=nil{return nil,result,fmt.Errorf("note %d onset: %w",i,err)}
   duration,err:=blick(n.Duration,payload.PPQ);if err!=nil{return nil,result,fmt.Errorf("note %d duration: %w",i,err)}
   if duration==0{return nil,result,fmt.Errorf("note %d smaller than 1 blick",i)}
