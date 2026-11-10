@@ -16,6 +16,7 @@ import (
  "github.com/ichiken26/cusic/internal/analysis"
  "context"
  "github.com/ichiken26/cusic/internal/midifile"
+ "github.com/ichiken26/cusic/internal/mix"
  "github.com/ichiken26/cusic/internal/dawproject"
  "github.com/ichiken26/cusic/internal/tuxguitar"
  "github.com/ichiken26/cusic/internal/vsqx"
@@ -75,6 +76,8 @@ func run(args []string)error{
  case "analyze":return analyzeSpectral(s,args[1:])
  case "sync":return syncCommand(s,args[1:])
  case "export":return export(s,args[1:])
+ case "effects":return effectsCommand(args[1:])
+ case "source":return sourceCommand(s,args[1:])
  case "validate":
   var result string
   if err:=s.DB.QueryRow("PRAGMA integrity_check").Scan(&result);err!=nil{return err}
@@ -101,6 +104,7 @@ func help()error{
  fmt.Print("  cusic export --format vsqx --track Miku --template piapro.vsqx --out miku.vsqx\n  cusic export --format dawproject --out cubase.dawproject\n")
  fmt.Print("  cusic sync plan --from cubase-export.dawproject\n  cusic sync pull --from cubase-export.dawproject --base-revision 12\n")
  fmt.Print("  cusic analyze [--max-windows 512] # NumPy/SciPy FFT analysis of imported WAV stems\n")
+ fmt.Print("  cusic effects inspect --from source.dawproject\n  cusic effects plan --from source.dawproject --plan effects.json\n  cusic effects apply --from source.dawproject --out edited.dawproject --plan effects.json --confirm\n  cusic source attach --from original.dawproject\n")
  fmt.Print("  cusic validate\n\nUse CUSIC_PROJECT=/path/to/song to target a different project.\n")
  return nil
 }
@@ -191,7 +195,14 @@ func importSong(s *store.Store,args []string)error{
   if e!=nil{return e}
  }
  if len(song.Tracks)==0&&len(importedAudio)==0{return errors.New("no importable notes or WAV stems")}
- fmt.Println("Note: non-note MIDI expression, original VST state and tablature technique are not preserved.")
+ if ext==".dawproject"{
+  names:=make([]string,0,len(song.Tracks))
+  for _,tr:=range song.Tracks{names=append(names,tr.Name)}
+  if err=s.SaveSourceDAWProject(filename,names);err!=nil{return fmt.Errorf("notes/WAV imported but could not preserve original DAWproject: %w",err)}
+  fmt.Println("Original DAWproject (including embedded effects and instrument state) preserved for future exports.")
+ }else{
+  fmt.Println("Note: generic MIDI/TG imports cannot restore DAW-specific plug-in state.")
+ }
  return nil
 }
 func suno(s *store.Store,args []string)error{
@@ -316,6 +327,14 @@ func export(s *store.Store,args []string)error{
   b,e:=midifile.Write(settings,ts,ns);if e!=nil{return e}
   if err=writeFileAtomic(*out,b);err!=nil{return err}
  case "dawproject":
+  preserved,err:=s.SourceDAWProject();if err!=nil{return err}
+  if preserved!=nil{
+   original,err:=s.SourceArchive(preserved);if err!=nil{return err}
+   changed,err:=s.ChangesSinceSource(preserved);if err!=nil{return err}
+   if err=mix.ExportPreserving(original,*out,changed);err!=nil{return err}
+   fmt.Printf("Preserved original DAWproject effect/instrument states; edited %d note tracks.\n",len(changed))
+   break
+  }
   tracks,err:=s.Tracks();if err!=nil{return err}
   notes:=make(map[string][]store.Note)
   for _,t:=range tracks{items,e:=s.Notes(t.ID,0,0);if e!=nil{return e};notes[t.ID]=items}
