@@ -42,14 +42,16 @@ MCPの `tempo_analyze`、`tempo_confirm`、`tempo_render` も使えます。後�
 | 初音ミクの声色探索とテンプレート自動選択 | `vocal_voices` と `score_export` で自動。実際のVSQXの声色情報を再利用 |
 | ボーカルトラック作成・歌詞付きノートの追加・部分変更 | `vocal_notes_apply` で同時に処理、既存のフレーズは保持 |
 | 既存VSQXの歌詞・音高のみ変更（元のコントローラ残存） | MCPで新ファイル生成 |
-| 既存SV2の歌詞・音高のみ変更（ノート再生成なし） | TS+Zodツール経由、SynthV内で手動実行 |
+| テトSV2を元SVPから複製して旧トラックをミュートし、新トラックへ編曲を適用 | MCP `svp_clone_plan` → `svp_clone_apply`（新SVP生成、承認必須） |
+| 日本語の母音無声化・モーラ配分・小節境界の子音先行を解析 | MCP `vocal_phonology_analyze`（読み取り専用） |
+| 既存SV2ノートの精密な手動差分編集 | 従来のTS+Zodツール経由、SynthV内で手動実行も引き続き対応 |
 | CubaseからDAWprojectを出す・戻す | **手動** |
 | Cubaseの開いている画面を操作してEQなどをリアルタイム変更 | **未実装** |
 | 既存の調声全体（ノート時間変更、リテイクまで）を完全な意味でAIに編集させる | **未実装** |
 
 ## MCPで公開しているツール
 
-`project_inventory`、`project_initialize`、`project_status`、`project_import`、`project_source_status`、`project_source_attach`、`effects_inspect`、`effects_plan`、`effects_apply`、`kontakt_diagnose`、`track_create`、`track_inspect`、`patch_apply`、`history`、`history_revert_head`、`audio_import`、`audio_list`、`mix_analyze_stems`、`mix_plan`、`mix_apply`、`score_export`、`cubase_sync_plan`、`cubase_sync_apply`、`vocal_source_status`、`vocal_backup_source`、`vocal_vsqx_edit_existing`、`vocal_voices`、`vocal_notes_apply`。
+`project_inventory`、`project_initialize`、`project_status`、`project_import`、`project_source_status`、`project_source_attach`、`effects_inspect`、`effects_plan`、`effects_apply`、`kontakt_diagnose`、`track_create`、`track_inspect`、`patch_apply`、`history`、`history_revert_head`、`audio_import`、`audio_list`、`mix_analyze_stems`、`mix_plan`、`mix_apply`、`score_export`、`cubase_sync_plan`、`cubase_sync_apply`、`vocal_source_status`、`vocal_backup_source`、`vocal_vsqx_edit_existing`、`vocal_voices`、`vocal_notes_apply`、`vocal_phonology_analyze`、`svp_clone_plan`、`svp_clone_apply`。
 
 ## ミックスでの重要な制約
 
@@ -71,6 +73,14 @@ SQLiteに登録したWAVは曲頭からのオーディオステムとして扱�
 `っ` は無声音、`br1`〜`br5` はブレス指定としてVSQXに出力する。ただしPiaproでの発音結果は実際のボイスバンクと歌唱設定に依存する。**まだ実際のVSQXが1つもない場合のみ、Piaproから声色を含むVSQXを1つ書き出す必要がある。** その後のテンプレート指定は自動。
 
 既存の調声済みVSQXは上書きしない。ノートIDを使ったcusicの差分編集と、原本のmCtrl/nStyleを維持する `vocal_vsqx_edit_existing` は用途が異なる。前者はcusicで管理する新しいボーカルフレーズ、後者はすでに調声されたVSQX向け。
+
+## テトSV2：原本を保持した新トラックへの自動適用
+
+`vocal_phonology_analyze` → `svp_clone_plan` → `svp_clone_apply` が標準ルート。既存SVPのTetoの歌声データベース・調声・リテイクを複製し、新トラックにcusicで変更したノートと歌詞を配置する。元Tetoのすべての情報は残し、新しいSVPの中では元Tetoだけミュートする。**ソースSVPファイルは上書きせず、新しいファイルを作る。** 音符を自動適用するためにユーザーにJavaScriptの手動実行を要求しない。一般的なSVP JSON構造を扱うが、実機での読み込み確認は未実施。
+
+`cusic vocal analyze --track Teto` または `cusic vocal analyze --from source.svp --track Teto` は、日本語の高母音/i,u/が無声化しやすい条件（前後の無声子音・休止）、モーラと音節の差、長い子音によるpreutteranceの小節越えリスクを報告する。例：**「くゆらす」では「く」の後が有声の /j/ なので機械的に母音を消さず、語尾「す」の /u/ は文脈に応じて無声化候補**とする。複数の仮名モーラが1ノートに入っている場合は、新トラックだけを拍内で分割し、開始・終了時刻は元ノートの範囲に閉じる。歌唱で実際に母音が消失するかは音響と歌い方次第で、音源波形の強制アラインメントを行ったと誤認させてはいけない。
+
+CLIからは `cusic svp plan --from original.svp --track Teto` → `cusic svp apply --from original.svp --track Teto --out edited.svp`。旧TypeScript版の `prepare-safe.js` は既存ノートの精密な手動調声用として引き続き利用可能。
 
 ## 歌声調声保護の重要な制約
 
